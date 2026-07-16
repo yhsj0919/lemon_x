@@ -93,7 +93,79 @@ final effect = rxEffect(() {
 });
 ```
 
-### 4.4 `LxController`：业务状态生命周期
+### 4.4 `RxAsync<T>`：可选的轻量异步状态
+
+`RxAsync<T>` 只表达互斥的 loading、data、error 三种状态，不公开冗长的状态子类：
+
+```dart
+final user = RxAsync<User>(); // 初始为 loading
+
+user.loading();
+user.data(currentUser);
+user.error(error, stackTrace);
+```
+
+UI 通过 `when` 处理三种状态：
+
+```dart
+Obx(() => user.when(
+  loading: () => const CircularProgressIndicator(),
+  data: (user) => Text(user.name),
+  error: (error, _) => Text('$error'),
+));
+```
+
+公开 API 保持为单一类型：
+
+```dart
+class RxAsync<T> implements Listenable {
+  RxAsync();
+
+  bool get isLoading;
+  bool get hasData;
+  bool get hasError;
+
+  T? get value;
+  Object? get errorValue;
+  StackTrace? get stackTrace;
+
+  void loading();
+  void data(T value);
+  void error(Object error, [StackTrace? stackTrace]);
+
+  Future<void> guard(Future<T> Function() task);
+
+  R when<R>({
+    required R Function() loading,
+    required R Function(T value) data,
+    required R Function(Object error, StackTrace? stackTrace) error,
+  });
+
+  @override
+  void addListener(VoidCallback listener);
+
+  @override
+  void removeListener(VoidCallback listener);
+}
+```
+
+`when` 和状态 getter 会读取内部 Rx，因此可以被 `Obx` 自动跟踪。`RxAsync<T>` 同时实现 `Listenable`，不使用 `Obx` 时可配合 Flutter 原生 `ListenableBuilder`。
+
+`guard` 是可选便利方法：调用时先进入 loading，成功后进入 data，捕获异常和 StackTrace 后进入 error；它不重新抛出已捕获异常。需要自定义错误处理或继续抛出时，调用方直接使用 `loading/data/error`。
+
+```dart
+await user.guard(repository.getUser);
+```
+
+严格限制：
+
+- 只提供 loading、data、error，不增加 idle、refreshing、empty 等状态；
+- 不内置重试、缓存、持久化、网络请求和自动取消；
+- `value == null` 不能用于判断状态，必须使用 `hasData`，以支持 `T` 本身可空；
+- 它只用于 presentation 层，Domain、Repository 和 Service 不依赖 `RxAsync`；
+- 用户始终可以改用 `Rx<MyCustomState<T>>` 表达更复杂的业务状态。
+
+### 4.5 `LxController`：业务状态生命周期
 
 ```dart
 class CounterController extends LxController {
@@ -590,7 +662,8 @@ LxDiagnostics.configure(
 - listener 在通知期间取消自身不会破坏遍历；
 - Worker 销毁后忽略已排队任务；
 - 响应式集合一次可变操作只通知一次；
-- 已销毁节点的访问行为。
+- 已销毁节点的访问行为；
+- `RxAsync` 三态互斥、可空 data、错误 StackTrace、guard 成功与失败路径。
 
 ### 10.2 依赖容器
 
@@ -628,6 +701,7 @@ lib/
   src/
     reactive/
       rx.dart
+      rx_async.dart
       rx_computed.dart
       rx_effect.dart
       tracking.dart
@@ -671,7 +745,7 @@ lib/
 
 ### M3：派生与异步能力
 
-- `RxComputed`、`RxEffect` 和基础 Worker；
+- `RxComputed`、`RxAsync`、`RxEffect` 和基础 Worker；
 - putAsync/findAsync 和并发去重；
 - 异步循环依赖检测；
 - diagnostics 事件。
@@ -689,7 +763,7 @@ lib/
 Reactive
   Rx<T>, Rxn<T>, RxInt, RxDouble, RxBool, RxString
   RxList<E>, RxMap<K, V>, RxSet<E>
-  RxComputed<T>, RxEffect, Worker
+  RxComputed<T>, RxAsync<T>, RxEffect, Worker
   .obs, rxEffect(), ever(), once(), debounce(), interval(), rxBatch()
 
 Flutter
@@ -723,7 +797,8 @@ Diagnostics
 11. 初始化失败必须回滚，失败的异步 Future 不缓存；
 12. 去重只发生在当前容器，子容器允许 shadow 父容器；
 13. 同步循环依赖检测属于 DI MVP；
-14. 普通 Rx 更新同步通知，批量通知必须显式调用 `rxBatch`。
+14. 普通 Rx 更新同步通知，批量通知必须显式调用 `rxBatch`；
+15. `RxAsync<T>` 只提供 loading/data/error 三态，保持可选且仅用于 presentation 层。
 
 ## 15. 最终范围约束
 
@@ -821,6 +896,7 @@ Composition root    LxContainer、bindings、LxScope
 | LemonX | Flutter/Dart 原生替代 | 迁移影响 |
 | --- | --- | --- |
 | `Rx<T>` | `ValueNotifier<T>` | 替换状态字段实现 |
+| `RxAsync<T>` | 自定义 sealed state + `ValueNotifier` | 替换异步展示状态 |
 | `Obx` | `ValueListenableBuilder` / `ListenableBuilder` | 逐个 Widget 替换 |
 | Worker | `addListener`、Timer、StreamSubscription | 逐个副作用替换 |
 | `LxController` | 普通类 + `dispose()` | 去掉继承并显式释放 |
