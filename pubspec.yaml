@@ -1,7 +1,6 @@
 name: lemon_x
-description: "A new Flutter package project."
+description: "Lightweight reactive state management and scoped dependency injection for Flutter."
 version: 0.0.1
-homepage:
 
 environment:
   sdk: ^3.12.2
