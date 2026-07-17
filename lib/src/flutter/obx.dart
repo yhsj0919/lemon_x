@@ -2,7 +2,9 @@ import 'package:flutter/widgets.dart';
 
 import '../reactive/tracking.dart';
 
+/// Rebuilds its builder when any reactive value read by it changes.
 class Obx extends StatefulWidget {
+  /// Creates an automatically tracked reactive builder.
   const Obx(this.builder, {super.key});
   final Widget Function() builder;
 
@@ -11,7 +13,7 @@ class Obx extends StatefulWidget {
 }
 
 class _ObxState extends State<Obx> implements RxDependencyCollector {
-  final Set<Listenable> _dependencies = <Listenable>{};
+  Set<Listenable> _dependencies = <Listenable>{};
   Set<Listenable>? _collecting;
 
   @override
@@ -35,15 +37,17 @@ class _ObxState extends State<Obx> implements RxDependencyCollector {
     } finally {
       _collecting = null;
     }
-    for (final dependency in _dependencies.difference(next)) {
-      dependency.removeListener(_changed);
+    for (final dependency in _dependencies) {
+      if (!next.contains(dependency)) {
+        dependency.removeListener(_changed);
+      }
     }
-    for (final dependency in next.difference(_dependencies)) {
-      dependency.addListener(_changed);
+    for (final dependency in next) {
+      if (!_dependencies.contains(dependency)) {
+        dependency.addListener(_changed);
+      }
     }
-    _dependencies
-      ..clear()
-      ..addAll(next);
+    _dependencies = next;
     return result;
   }
 

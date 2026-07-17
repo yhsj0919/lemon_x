@@ -12,6 +12,7 @@ export 'src/flutter/lx_scope.dart';
 export 'src/flutter/obx.dart';
 export 'src/flutter/rx_builder.dart';
 export 'src/reactive/rx.dart';
+export 'src/reactive/rx_async.dart';
 export 'src/reactive/rx_collections.dart';
 export 'src/reactive/rx_computed.dart';
 export 'src/reactive/rx_effect.dart';

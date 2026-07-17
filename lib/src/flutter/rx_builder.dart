@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
+/// Explicitly rebuilds from a single [ValueListenable].
 class RxBuilder<T> extends StatelessWidget {
+  /// Creates a value-listenable builder with an optional static [child].
   const RxBuilder({
     required this.listenable,
     required this.builder,

@@ -6,10 +6,16 @@ import 'controller.dart';
 import 'diagnostics.dart';
 import 'errors.dart';
 
+/// Synchronously creates a dependency.
 typedef LxFactory<T> = T Function();
+
+/// Asynchronously creates a dependency.
 typedef LxAsyncFactory<T> = Future<T> Function();
+
+/// Releases a dependency synchronously or asynchronously.
 typedef LxDisposer<T> = FutureOr<void> Function(T value);
 
+/// Lifecycle states of an [LxContainer].
 enum LxContainerState { active, disposing, disposed }
 
 enum _RegistrationKind { singleton, lazy, factory, asyncSingleton, instance }
@@ -56,7 +62,9 @@ class _Registration {
   bool created;
 }
 
+/// A scoped dependency container with explicit ownership and disposal.
 class LxContainer {
+  /// Creates a container that optionally falls back to [parent].
   LxContainer({this.parent, String? debugLabel})
     : debugLabel = debugLabel ?? 'scope-${identityHashCode(Object())}' {
     parent?._children.add(this);
@@ -66,6 +74,7 @@ class LxContainer {
   final String debugLabel;
   final Map<_DependencyKey, _Registration> _registrations = {};
   final List<_Registration> _creationOrder = [];
+  final Set<Object> _disposedInstances = HashSet<Object>.identity();
   final Set<LxContainer> _children = HashSet<LxContainer>.identity();
   final List<_DependencyKey> _resolutionStack = [];
   LxContainerState _state = LxContainerState.active;
@@ -75,6 +84,7 @@ class LxContainer {
   LxContainerState get state => _state;
   bool get isDisposed => _state == LxContainerState.disposed;
 
+  /// Registers and immediately creates an owned singleton.
   T put<T>(LxFactory<T> builder, {Object? tag, LxDisposer<T>? dispose}) {
     _ensureActive();
     final key = _DependencyKey(T, tag);
@@ -101,6 +111,7 @@ class LxContainer {
     return _resolveRegistration<T>(registration);
   }
 
+  /// Registers an existing instance, optionally transferring ownership.
   T putInstance<T>(
     T instance, {
     Object? tag,
@@ -137,6 +148,7 @@ class LxContainer {
     }
   }
 
+  /// Registers an owned singleton that is created on first lookup.
   void lazyPut<T>(LxFactory<T> builder, {Object? tag, LxDisposer<T>? dispose}) {
     _registerFactory(
       T,
@@ -147,10 +159,12 @@ class LxContainer {
     );
   }
 
+  /// Registers an unowned factory that creates a new value per lookup.
   void factory<T>(LxFactory<T> builder, {Object? tag}) {
     _registerFactory(T, tag, _RegistrationKind.factory, builder, null);
   }
 
+  /// Registers and starts creating an owned asynchronous singleton.
   Future<T> putAsync<T>(
     LxAsyncFactory<T> builder, {
     Object? tag,
@@ -199,6 +213,7 @@ class LxContainer {
     _emit(LxDiEventType.register, key);
   }
 
+  /// Finds a synchronous dependency from this container or its ancestors.
   T find<T>({Object? tag}) {
     _ensureActive();
     final key = _DependencyKey(T, tag);
@@ -211,6 +226,7 @@ class LxContainer {
     throw LxNotFoundError('$key was not found from $debugLabel to root.');
   }
 
+  /// Finds an asynchronous dependency from this container or its ancestors.
   Future<T> findAsync<T>({Object? tag}) {
     _ensureActive();
     final key = _DependencyKey(T, tag);
@@ -220,7 +236,9 @@ class LxContainer {
     throw LxNotFoundError('$key was not found from $debugLabel to root.');
   }
 
+  /// Whether a matching registration exists in the selected scope chain.
   bool contains<T>({Object? tag, bool includeParents = true}) {
+    _ensureActive();
     final key = _DependencyKey(T, tag);
     return _registrations.containsKey(key) ||
         (includeParents && parent?.contains<T>(tag: tag) == true);
@@ -363,6 +381,7 @@ class LxContainer {
     }
   }
 
+  /// Removes a registration and disposes its owned value, if created.
   Future<bool> remove<T>({Object? tag}) async {
     _ensureActive();
     final key = _DependencyKey(T, tag);
@@ -376,6 +395,7 @@ class LxContainer {
     return true;
   }
 
+  /// Removes an existing registration and installs an eager singleton.
   Future<T> replace<T>(LxFactory<T> builder, {Object? tag}) async {
     await remove<T>(tag: tag);
     final result = put<T>(builder, tag: tag);
@@ -383,6 +403,7 @@ class LxContainer {
     return result;
   }
 
+  /// Removes all registrations while keeping this container active.
   Future<void> reset() async {
     _ensureActive();
     await _disposeRegistrations();
@@ -390,6 +411,7 @@ class LxContainer {
     _emit(LxDiEventType.reset, const _DependencyKey(Object, null));
   }
 
+  /// Disposes child scopes and owned values in reverse creation order.
   Future<void> dispose() => _disposeFuture ??= _disposeInternal();
 
   Future<void> _disposeInternal() async {
@@ -434,6 +456,7 @@ class LxContainer {
 
   Future<void> _disposeValue(_Registration registration, Object? value) async {
     if (value == null) return;
+    if (!_disposedInstances.add(value)) return;
     if (value is LxController) {
       await value.disposeController();
     } else if (value is LxDisposable) {
@@ -451,6 +474,10 @@ class LxContainer {
   }
 
   void _emit(LxDiEventType type, _DependencyKey key, [Object? instance]) {
+    if (!LxDiagnostics.enabled ||
+        (type == LxDiEventType.find && !LxDiagnostics.logFind)) {
+      return;
+    }
     LxDiagnostics.emit(
       LxDiEvent(
         type: type,

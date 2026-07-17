@@ -1,0 +1,26 @@
+name: lemon_x_benchmark
+description: Local benchmarks for lemon_x. This package is not published.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.12.2
+  flutter: ">=3.44.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_bloc: 9.1.1
+  flutter_mobx: 2.3.0
+  flutter_riverpod: 3.3.2
+  getx_plus: 5.2.0
+  lemon_x:
+    path: ../
+  mobx: 2.6.0
+  provider: 6.1.5+1
+  signals_flutter: 7.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0

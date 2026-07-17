@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../core/disposable.dart';
 
+/// Optional lifecycle base class for objects owned by an [LxContainer].
 abstract class LxController {
   final List<Object> _owned = <Object>[];
   bool _initialized = false;
@@ -12,13 +13,19 @@ abstract class LxController {
   bool get isReady => _ready;
   bool get isDisposed => _disposed;
 
+  /// Adds a resource to be disposed before this controller's [onDispose].
   T own<T extends Object>(T resource) {
     _owned.add(resource);
     return resource;
   }
 
+  /// Called once after the controller enters a container.
   void onInit() {}
+
+  /// Called once after a Flutter-backed scope completes its first frame.
   void onReady() {}
+
+  /// Called once when the controller is removed from its owner.
   FutureOr<void> onDispose() {}
 
   void initialize() {

@@ -15,6 +15,7 @@ class _ReadyController extends LxController {
 
 void main() {
   setUp(() => LxDiagnostics.enabled = false);
+  tearDown(() => Lemon.dispose());
 
   testWidgets('Obx tracks values and rebuilds', (tester) async {
     final count = 0.obs;
@@ -113,6 +114,74 @@ void main() {
     count.value = 3;
     await tester.pump();
     expect(find.text('3'), findsOneWidget);
+  });
+
+  testWidgets('RxAsync is tracked by Obx', (tester) async {
+    final state = RxAsync<String>();
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Obx(
+          () => Text(
+            state.when(
+              loading: () => 'loading',
+              data: (value) => value,
+              error: (error, stack) => 'error',
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('loading'), findsOneWidget);
+    state.data('ready');
+    await tester.pump();
+    expect(find.text('ready'), findsOneWidget);
+  });
+
+  testWidgets('external LxScope ownership is explicit', (tester) async {
+    final external = LxContainer(debugLabel: 'external');
+    final controller = external.put(() => _PageController());
+
+    await tester.pumpWidget(
+      LxScope(container: external, child: const SizedBox()),
+    );
+    await tester.pumpWidget(const SizedBox());
+    expect(external.state, LxContainerState.active);
+    expect(controller.isDisposed, isFalse);
+    await external.dispose();
+
+    final owned = LxContainer(debugLabel: 'owned-external');
+    final ownedController = owned.put(() => _PageController());
+    await tester.pumpWidget(
+      LxScope(
+        container: owned,
+        disposeContainer: true,
+        child: const SizedBox(),
+      ),
+    );
+    await tester.pumpWidget(const SizedBox());
+    await owned.dispose();
+    expect(ownedController.isDisposed, isTrue);
+  });
+
+  testWidgets('LemonApp exposes the root without owning it', (tester) async {
+    await tester.pumpWidget(
+      LemonApp(
+        bindings: (container) =>
+            container.put<_PageController>(() => _PageController()),
+        child: Builder(
+          builder: (context) => Text(
+            '${context.lx.find<_PageController>().count.value}',
+            textDirection: TextDirection.ltr,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('0'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    expect(Lemon.root.state, LxContainerState.active);
   });
 
   testWidgets('workers honor time and cancellation', (tester) async {

@@ -40,9 +40,50 @@ class _TrackedController extends LxController {
   void onDispose() => events.add('dispose:$name');
 }
 
+class _DisposableService implements LxDisposable {
+  _DisposableService(this.onDispose);
+
+  final void Function() onDispose;
+
+  @override
+  void dispose() => onDispose();
+}
+
+class _InitController extends LxController {
+  _InitController({required this.fail, required this.onDisposed});
+
+  final bool fail;
+  final void Function() onDisposed;
+
+  @override
+  void onInit() {
+    if (fail) throw StateError('init failed');
+  }
+
+  @override
+  void onDispose() => onDisposed();
+}
+
+class _SensitiveTag {
+  _SensitiveTag(this.onStringify);
+  final void Function() onStringify;
+
+  @override
+  String toString() {
+    onStringify();
+    return 'secret';
+  }
+}
+
 void main() {
   setUp(() {
     LxDiagnostics.enabled = false;
+  });
+
+  tearDown(() async {
+    LxDiagnostics.onEvent = null;
+    LxDiagnostics.enabled = false;
+    await Lemon.dispose();
   });
 
   test('put is eager, deduplicated, and returns the instance', () async {
@@ -164,6 +205,17 @@ void main() {
     await container.dispose();
   });
 
+  test('controller disposes owned resources before onDispose', () async {
+    final events = <String>[];
+    final container = LxContainer(debugLabel: 'test');
+    final controller = container.put(() => _TrackedController(events, 'owner'));
+    controller.own(_DisposableService(() => events.add('resource')));
+
+    await container.dispose();
+
+    expect(events, ['init:owner', 'resource', 'dispose:owner']);
+  });
+
   test(
     'putInstance is external by default and can transfer ownership',
     () async {
@@ -178,6 +230,30 @@ void main() {
 
       expect(external.isDisposed, isFalse);
       expect(owned.isDisposed, isTrue);
+    },
+  );
+
+  test(
+    'the same owned instance is disposed once across multiple keys',
+    () async {
+      var disposals = 0;
+      final service = _DisposableService(() => disposals++);
+      final container = LxContainer(debugLabel: 'test');
+      container.putInstance<_DisposableService>(
+        service,
+        tag: 'one',
+        owned: true,
+      );
+      container.putInstance<_DisposableService>(
+        service,
+        tag: 'two',
+        owned: true,
+      );
+
+      await container.remove<_DisposableService>(tag: 'one');
+      await container.dispose();
+
+      expect(disposals, 1);
     },
   );
 
@@ -210,8 +286,62 @@ void main() {
 
       expect(disposed, isTrue);
       expect(() => container.find<_Service>(), throwsA(isA<LxDisposedError>()));
+      expect(
+        () => container.contains<_Service>(),
+        throwsA(isA<LxDisposedError>()),
+      );
     },
   );
+
+  test(
+    'initialization failure rolls back and disposes the failed value',
+    () async {
+      final container = LxContainer(debugLabel: 'test');
+      var attempts = 0;
+      var disposals = 0;
+      container.lazyPut<_InitController>(
+        () => _InitController(
+          fail: ++attempts == 1,
+          onDisposed: () => disposals++,
+        ),
+      );
+
+      expect(() => container.find<_InitController>(), throwsStateError);
+      await Future<void>.delayed(Duration.zero);
+      final retried = container.find<_InitController>();
+
+      expect(retried.isInitialized, isTrue);
+      expect(attempts, 2);
+      expect(disposals, 1);
+      await container.dispose();
+      expect(disposals, 2);
+    },
+  );
+
+  test('disposal continues after errors and reports them together', () async {
+    final container = LxContainer(debugLabel: 'test');
+    final disposed = <int>[];
+    container.put(
+      () => _Service(1),
+      dispose: (_) {
+        disposed.add(1);
+        throw StateError('one');
+      },
+    );
+    container.put(
+      () => _Service(2),
+      tag: 'two',
+      dispose: (_) async {
+        disposed.add(2);
+        throw StateError('two');
+      },
+    );
+
+    await expectLater(container.dispose(), throwsStateError);
+
+    expect(disposed, [2, 1]);
+    expect(container.state, LxContainerState.disposed);
+  });
 
   test('factory, remove, replace, and reset have explicit semantics', () async {
     final container = LxContainer(debugLabel: 'test');
@@ -243,5 +373,57 @@ void main() {
     expect(events.every((event) => event.scope == 'diagnostic'), isTrue);
     LxDiagnostics.onEvent = null;
     LxDiagnostics.enabled = false;
+  });
+
+  test(
+    'disabled diagnostics allocate no events and format tags safely',
+    () async {
+      var events = 0;
+      var stringifications = 0;
+      final tag = _SensitiveTag(() => stringifications++);
+      LxDiagnostics.enabled = false;
+      LxDiagnostics.onEvent = (_) => events++;
+      final container = LxContainer(debugLabel: 'quiet');
+      container.put(() => _Service(1), tag: tag);
+
+      expect(events, 0);
+      final event = LxDiEvent(
+        type: LxDiEventType.register,
+        scope: 'quiet',
+        dependencyType: _Service,
+        tag: tag,
+        timestamp: DateTime(2026),
+      );
+      expect(event.format(), contains('_SensitiveTag#'));
+      expect(stringifications, 0);
+      await container.dispose();
+    },
+  );
+
+  test('Lemon global entry can reset and replace its root safely', () async {
+    Lemon.put(() => _Service(1));
+    expect(Lemon.find<_Service>().id, 1);
+    await Lemon.reset();
+    expect(Lemon.contains<_Service>(), isFalse);
+
+    Lemon.put(() => _Service(2));
+    final previous = Lemon.root;
+    await Lemon.dispose();
+
+    expect(previous.isDisposed, isTrue);
+    expect(Lemon.root.state, LxContainerState.active);
+    expect(() => Lemon.find<_Service>(), throwsA(isA<LxNotFoundError>()));
+  });
+
+  test('Lemon root proxies ownership and replacement options', () async {
+    var disposals = 0;
+    Lemon.putInstance<_Service>(
+      _Service(1),
+      owned: true,
+      dispose: (_) => disposals++,
+    );
+    expect((await Lemon.replace(() => _Service(2))).id, 2);
+    expect(disposals, 1);
+    await Lemon.dispose();
   });
 }

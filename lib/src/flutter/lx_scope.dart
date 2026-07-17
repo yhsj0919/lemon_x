@@ -4,9 +4,12 @@ import 'package:flutter/widgets.dart';
 
 import '../di/container.dart';
 
+/// Registers dependencies in an [LxContainer].
 typedef LxBindings = void Function(LxContainer container);
 
+/// Exposes a scoped dependency container to a Widget subtree.
 class LxScope extends StatefulWidget {
+  /// Creates a scope around [child].
   const LxScope({
     required this.child,
     this.container,
@@ -24,6 +27,7 @@ class LxScope extends StatefulWidget {
   final bool? disposeContainer;
   final String? debugLabel;
 
+  /// Returns the nearest scoped container and subscribes to scope changes.
   static LxContainer of(BuildContext context) {
     final inherited = context
         .dependOnInheritedWidgetOfExactType<_LxInheritedScope>();
@@ -33,6 +37,7 @@ class LxScope extends StatefulWidget {
     return inherited.container;
   }
 
+  /// Returns the nearest scoped container, or `null` when none exists.
   static LxContainer? maybeOf(BuildContext context) => context
       .dependOnInheritedWidgetOfExactType<_LxInheritedScope>()
       ?.container;

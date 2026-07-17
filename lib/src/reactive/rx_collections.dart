@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import 'rx.dart';
 
+/// A list whose mutating operations notify reactive listeners.
 class RxList<E> extends Rx<List<E>> with ListMixin<E> {
   RxList([Iterable<E> initial = const []]) : super(List<E>.of(initial));
 
@@ -120,6 +121,7 @@ class RxList<E> extends Rx<List<E>> with ListMixin<E> {
   }
 }
 
+/// A map whose mutating operations notify reactive listeners.
 class RxMap<K, V> extends Rx<Map<K, V>> with MapMixin<K, V> {
   RxMap([Map<K, V>? initial]) : super(Map<K, V>.of(initial ?? const {}));
 
@@ -190,6 +192,7 @@ class RxMap<K, V> extends Rx<Map<K, V>> with MapMixin<K, V> {
   }
 }
 
+/// A set whose mutating operations notify reactive listeners.
 class RxSet<E> extends Rx<Set<E>> with SetMixin<E> {
   RxSet([Iterable<E> initial = const {}]) : super(Set<E>.of(initial));
 
@@ -254,13 +257,16 @@ class RxSet<E> extends Rx<Set<E>> with SetMixin<E> {
 }
 
 extension ListObsExtension<E> on List<E> {
+  /// Copies this list into a reactive [RxList].
   RxList<E> get obs => RxList<E>(this);
 }
 
 extension MapObsExtension<K, V> on Map<K, V> {
+  /// Copies this map into a reactive [RxMap].
   RxMap<K, V> get obs => RxMap<K, V>(this);
 }
 
 extension SetObsExtension<E> on Set<E> {
+  /// Copies this set into a reactive [RxSet].
   RxSet<E> get obs => RxSet<E>(this);
 }

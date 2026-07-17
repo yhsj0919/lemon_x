@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../core/errors.dart';
 import 'tracking.dart';
 
+/// A lazy, cached value that automatically tracks reactive dependencies.
 class RxComputed<T> extends ChangeNotifier
     implements ValueListenable<T>, RxDependencyCollector {
   RxComputed(this._compute, {this.debugLabel});

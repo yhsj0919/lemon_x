@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'container.dart';
 
+/// Convenience access to the application-wide root [LxContainer].
 class Lemon {
   Lemon._();
 
@@ -14,17 +15,27 @@ class Lemon {
     LxDisposer<T>? dispose,
   }) => _root.put(builder, tag: tag, dispose: dispose);
 
-  static T putInstance<T>(T instance, {Object? tag, bool owned = false}) =>
-      _root.putInstance(instance, tag: tag, owned: owned);
+  static T putInstance<T>(
+    T instance, {
+    Object? tag,
+    bool owned = false,
+    LxDisposer<T>? dispose,
+  }) => _root.putInstance(instance, tag: tag, owned: owned, dispose: dispose);
 
-  static void lazyPut<T>(LxFactory<T> builder, {Object? tag}) =>
-      _root.lazyPut(builder, tag: tag);
+  static void lazyPut<T>(
+    LxFactory<T> builder, {
+    Object? tag,
+    LxDisposer<T>? dispose,
+  }) => _root.lazyPut(builder, tag: tag, dispose: dispose);
 
   static void factory<T>(LxFactory<T> builder, {Object? tag}) =>
       _root.factory(builder, tag: tag);
 
-  static Future<T> putAsync<T>(LxAsyncFactory<T> builder, {Object? tag}) =>
-      _root.putAsync(builder, tag: tag);
+  static Future<T> putAsync<T>(
+    LxAsyncFactory<T> builder, {
+    Object? tag,
+    LxDisposer<T>? dispose,
+  }) => _root.putAsync(builder, tag: tag, dispose: dispose);
 
   static T find<T>({Object? tag}) => _root.find<T>(tag: tag);
   static Future<T> findAsync<T>({Object? tag}) => _root.findAsync<T>(tag: tag);
@@ -32,6 +43,9 @@ class Lemon {
   static bool contains<T>({Object? tag}) => _root.contains<T>(tag: tag);
 
   static Future<bool> remove<T>({Object? tag}) => _root.remove<T>(tag: tag);
+
+  static Future<T> replace<T>(LxFactory<T> builder, {Object? tag}) =>
+      _root.replace(builder, tag: tag);
 
   static Future<void> reset() => _root.reset();
 

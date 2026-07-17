@@ -1,0 +1,7 @@
+# Repository-only tooling and generated outputs.
+.github/
+benchmark/
+build/
+coverage/
+doc/api/
+docs/

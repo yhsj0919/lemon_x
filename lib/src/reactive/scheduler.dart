@@ -14,6 +14,8 @@ void scheduleRxNotification(Rx<dynamic> rx) {
 }
 
 /// Groups listener notifications while keeping value writes synchronous.
+///
+/// Nested batches flush only when the outermost callback completes.
 T rxBatch<T>(T Function() body) {
   _batchDepth++;
   try {

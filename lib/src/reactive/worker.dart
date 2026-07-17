@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/disposable.dart';
 
+/// A disposable reactive subscription or timer-based worker.
 class Worker implements LxDisposable {
   Worker(this._dispose);
 
@@ -20,12 +21,14 @@ class Worker implements LxDisposable {
   }
 }
 
+/// Calls [callback] after every change to [rx].
 Worker ever<T>(ValueListenable<T> rx, void Function(T value) callback) {
   void listener() => callback(rx.value);
   rx.addListener(listener);
   return Worker(() => rx.removeListener(listener));
 }
 
+/// Calls [callback] for the first change to [rx], then disposes itself.
 Worker once<T>(ValueListenable<T> rx, void Function(T value) callback) {
   late Worker worker;
   void listener() {
@@ -38,6 +41,7 @@ Worker once<T>(ValueListenable<T> rx, void Function(T value) callback) {
   return worker;
 }
 
+/// Calls [callback] after [rx] has remained unchanged for [time].
 Worker debounce<T>(
   ValueListenable<T> rx,
   void Function(T value) callback, {
@@ -60,6 +64,7 @@ Worker debounce<T>(
   });
 }
 
+/// Calls [callback] at most once per [time] window.
 Worker interval<T>(
   ValueListenable<T> rx,
   void Function(T value) callback, {
