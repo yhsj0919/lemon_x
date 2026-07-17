@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -186,6 +187,9 @@ void main() {
     list.setAll(0, [10, 11]);
     expect(list.remove(3), isTrue);
     list.addAll(const []);
+    list.replaceAll([12, 13]);
+    list.replaceAll(list);
+    list.replaceAll(list.where((value) => value.isEven));
     list.removeWhere((value) => value == 9);
     list.retainWhere((value) => value >= 10);
     list.length = 1;
@@ -193,6 +197,51 @@ void main() {
 
     expect(list, isEmpty);
     expect(calls, 11);
+  });
+
+  test('RxList replaceAll replaces contents with one notification', () {
+    final list = RxList<int>([1, 2, 3]);
+    var calls = 0;
+    list.addListener(() => calls++);
+
+    list.replaceAll([4, 5]);
+    expect(list, [4, 5]);
+    expect(calls, 1);
+
+    list.replaceAll([4, 5]);
+    list.replaceAll(list);
+    expect(calls, 1);
+
+    list.replaceAll(const []);
+    expect(list, isEmpty);
+    expect(calls, 2);
+  });
+
+  test('RxList reorder helpers mutate with one notification', () {
+    final list = RxList<int>([1, 2, 3, 4]);
+    var calls = 0;
+    list.addListener(() => calls++);
+
+    list.reverse();
+    expect(list, [4, 3, 2, 1]);
+    expect(calls, 1);
+
+    list.swap(0, 3);
+    expect(list, [1, 3, 2, 4]);
+    expect(calls, 2);
+
+    list.move(1, 3);
+    expect(list, [1, 2, 4, 3]);
+    expect(calls, 3);
+
+    list.shuffle(Random(7));
+    expect(list, hasLength(4));
+    expect(list.toSet(), {1, 2, 3, 4});
+    expect(calls, 4);
+
+    list.swap(2, 2);
+    list.move(1, 1);
+    expect(calls, 4);
   });
 
   test('reactive map and set cover common mutable operations', () {

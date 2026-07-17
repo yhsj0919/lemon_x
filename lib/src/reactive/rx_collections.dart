@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:math';
 
 import 'rx.dart';
 
@@ -40,6 +41,65 @@ class RxList<E> extends Rx<List<E>> with ListMixin<E> {
     if (values.isEmpty) return;
     _list.addAll(values);
     markChanged();
+  }
+
+  /// Replaces all current elements with [items] and notifies at most once.
+  ///
+  /// The iterable is copied before the list is cleared, so passing this list
+  /// itself, or a lazy iterable derived from it, is safe.
+  void replaceAll(Iterable<E> items) {
+    final values = List<E>.of(items);
+    final list = _list;
+    if (_hasSameElements(list, values)) return;
+    list.replaceRange(0, list.length, values);
+    markChanged();
+  }
+
+  /// Reverses this list in place and notifies once.
+  void reverse() {
+    final list = _list;
+    if (list.length < 2) return;
+    list.setAll(0, list.reversed.toList(growable: false));
+    markChanged();
+  }
+
+  /// Randomly reorders this list and notifies once.
+  @override
+  void shuffle([Random? random]) {
+    if (_list.length < 2) return;
+    _list.shuffle(random);
+    markChanged();
+  }
+
+  /// Exchanges the elements at [firstIndex] and [secondIndex].
+  void swap(int firstIndex, int secondIndex) {
+    final list = _list;
+    RangeError.checkValidIndex(firstIndex, list, 'firstIndex');
+    RangeError.checkValidIndex(secondIndex, list, 'secondIndex');
+    if (firstIndex == secondIndex) return;
+    final first = list[firstIndex];
+    list[firstIndex] = list[secondIndex];
+    list[secondIndex] = first;
+    markChanged();
+  }
+
+  /// Moves one element so it occupies [toIndex] in the resulting list.
+  void move(int fromIndex, int toIndex) {
+    final list = _list;
+    RangeError.checkValidIndex(fromIndex, list, 'fromIndex');
+    RangeError.checkValidIndex(toIndex, list, 'toIndex');
+    if (fromIndex == toIndex) return;
+    final element = list.removeAt(fromIndex);
+    list.insert(toIndex, element);
+    markChanged();
+  }
+
+  bool _hasSameElements(List<E> current, List<E> next) {
+    if (current.length != next.length) return false;
+    for (var index = 0; index < current.length; index++) {
+      if (current[index] != next[index]) return false;
+    }
+    return true;
   }
 
   @override

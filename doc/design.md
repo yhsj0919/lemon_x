@@ -60,7 +60,7 @@ user.value = currentUser;
 items.value = [...items.value, newItem];
 ```
 
-同时提供 GetX 风格的常用类型：`Rxn<T>`、`RxInt`、`RxDouble`、`RxBool`、`RxString`、`RxList<E>`、`RxMap<K, V>`、`RxSet<E>`。`.obs` 根据静态类型返回对应的 Rx 类型。
+同时提供 GetX 风格的常用类型：`Rxn<T>`、`RxInt`、`RxDouble`、`RxBool`、`RxString`、`RxList<E>`、`RxMap<K, V>`、`RxSet<E>`。`.obs` 根据静态类型返回对应的 Rx 类型。`RxList` 提供 `replaceAll()`、`reverse()`、`shuffle()`、`swap()` 和 `move()` 等常用批量操作，每次最多发送一次通知。
 
 ### 4.2 `RxComputed<T>`：派生状态
 
