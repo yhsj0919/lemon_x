@@ -281,6 +281,31 @@ class LxContainer {
     registration.scopes.clear();
   }
 
+  /// Hides this container's owned registrations from global and alias lookup.
+  ///
+  /// The owner keeps its local registrations so their values can be disposed
+  /// later. This is used when a Route stops being current before its exit
+  /// transition has completed.
+  void retireOwnedRegistrations() {
+    _ensureActive();
+    final owned = _registrations.values
+        .where((registration) => identical(registration.owner, this))
+        .toSet();
+    for (final registration in owned) {
+      if (identical(_registry.registrations[registration.key], registration)) {
+        _registry.registrations.remove(registration.key);
+      }
+      for (final scope in registration.scopes.toList()) {
+        if (identical(scope, this)) continue;
+        if (identical(scope._registrations[registration.key], registration)) {
+          scope._registrations.remove(registration.key);
+        }
+        registration.scopes.remove(scope);
+      }
+      registration.scopes.add(this);
+    }
+  }
+
   /// Finds a synchronous dependency from this container or its ancestors.
   T find<T>({Object? tag}) {
     _ensureActive();

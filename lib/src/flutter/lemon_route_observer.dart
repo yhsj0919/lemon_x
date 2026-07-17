@@ -61,7 +61,10 @@ class LemonRouteObserver extends NavigatorObserver {
   void _retire(Route<dynamic> route, {required bool waitForTransition}) {
     final owner = _owners.remove(route);
     if (owner == null) return;
-    owner.deactivate();
+    // Make the outgoing Route's registrations unavailable immediately. Their
+    // object disposal may still wait for the exit transition so the outgoing
+    // widget tree can finish animating with live instances.
+    owner.retire();
     final disposal = waitForTransition && route is TransitionRoute<dynamic>
         ? route.completed.then<void>((_) => owner.dispose())
         : owner.dispose();

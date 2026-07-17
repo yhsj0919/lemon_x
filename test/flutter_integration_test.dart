@@ -348,6 +348,50 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets(
+    'popped route releases canonical before its exit transition completes',
+    (tester) async {
+      final navigatorKey = GlobalKey<NavigatorState>();
+      late _PageController first;
+      late _PageController second;
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigatorKey,
+          navigatorObservers: [LemonRouteObserver()],
+          home: const SizedBox(),
+        ),
+      );
+
+      PageRoute<void> page(void Function(_PageController) onCreated) =>
+          PageRouteBuilder<void>(
+            transitionDuration: const Duration(milliseconds: 300),
+            reverseTransitionDuration: const Duration(milliseconds: 300),
+            pageBuilder: (_, _, _) => _RouteOwnedPage(onCreated: onCreated),
+          );
+
+      navigatorKey.currentState!.push<void>(page((value) => first = value));
+      await tester.pumpAndSettle();
+
+      navigatorKey.currentState!.pop();
+      expect(Lemon.contains<_PageController>(), isFalse);
+      expect(first.isDisposed, isFalse);
+
+      navigatorKey.currentState!.push<void>(page((value) => second = value));
+      await tester.pump();
+
+      expect(identical(first, second), isFalse);
+      expect(identical(Lemon.find<_PageController>(), second), isTrue);
+      expect(second.isDisposed, isFalse);
+
+      await tester.pumpAndSettle();
+      expect(first.isDisposed, isTrue);
+      expect(second.isDisposed, isFalse);
+
+      navigatorKey.currentState!.pop();
+      await tester.pumpAndSettle();
+    },
+  );
+
   testWidgets('removing a route disposes its page owner', (tester) async {
     final navigatorKey = GlobalKey<NavigatorState>();
     late _PageController controller;

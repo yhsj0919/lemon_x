@@ -103,7 +103,85 @@ class LoginPage extends StatelessWidget {
 
 Route 从 Navigator 栈移除后，页面注册会先从全局索引撤销，再执行 `onDispose()`。Observer 不接管 push、pop、路由表、参数或重定向；每个 Navigator 应创建自己的 `LemonRouteObserver`。
 
-使用 go_router 时同样只需把 Observer 放入其 `observers` 配置，其他路由 API 保持不变。
+使用 go_router 时同样只需配置 Observer，其他路由 API 保持不变：
+
+```dart
+final router = GoRouter(
+  observers: [LemonRouteObserver()],
+  routes: [
+    GoRoute(
+      path: '/',
+      builder: (_, __) => const HomePage(),
+    ),
+  ],
+);
+```
+
+`ShellRoute` 会创建嵌套 Navigator。根 Navigator 和 Shell Navigator 应分别使用不同的 Observer，并关闭 Shell 对根 Observer 的重复通知：
+
+```dart
+final rootNavigatorKey = GlobalKey<NavigatorState>();
+final shellNavigatorKey = GlobalKey<NavigatorState>();
+
+final router = GoRouter(
+  navigatorKey: rootNavigatorKey,
+  observers: [LemonRouteObserver()],
+  routes: [
+    ShellRoute(
+      navigatorKey: shellNavigatorKey,
+      notifyRootObserver: false,
+      observers: [LemonRouteObserver()],
+      builder: (_, __, child) => LxPage(
+        bindings: (container) {
+          container.put(ShellController.new);
+        },
+        child: AppShell(child: child),
+      ),
+      routes: [
+        // Shell 内的页面路由……
+      ],
+    ),
+  ],
+);
+```
+
+外层 `LxPage` 只在需要 Shell 级共享实例时使用：子页面切换不会销毁 `ShellController`，整个 Shell 移出 Widget 树时才会销毁。仅使用各子页面自己的 Controller 时，不需要给 Shell 包 `LxPage`。
+
+使用 `parentNavigatorKey: rootNavigatorKey` 打开的根层全屏页不属于 Shell 的 Widget 父链，但只要 Shell 仍在路由栈中，就可以通过全局 canonical 查找共享实例：
+
+```dart
+final controller = Lemon.find<ShellController>();
+```
+
+此处不要使用 `context.lx.find<ShellController>()`，也不要在全屏页重新 `put`。如果使用 `go/replace` 离开整个 Shell，外层 `LxPage` 会卸载，Shell 实例随之销毁。
+
+`StatefulShellRoute` 的每个 `StatefulShellBranch` 都有独立 Navigator，因此每个分支配置独立 Observer；整个 Shell 共享的实例仍放在 builder 外层的 `LxPage`：
+
+```dart
+StatefulShellRoute.indexedStack(
+  notifyRootObserver: false,
+  builder: (_, __, navigationShell) => LxPage(
+    bindings: (container) {
+      container.put(ShellController.new);
+    },
+    child: AppShell(navigationShell: navigationShell),
+  ),
+  branches: [
+    StatefulShellBranch(
+      observers: [LemonRouteObserver()],
+      routes: [/* 首页分支 */],
+    ),
+    StatefulShellBranch(
+      observers: [LemonRouteObserver()],
+      routes: [/* 我的分支 */],
+    ),
+  ],
+);
+```
+
+需要每个分支各自长期持有同类型实例时，应在各分支根部提供独立 `LxPage`，并使用不同 `tag`；不要依赖相同 `(Type, tag)` 的首次注册复用来表达共享生命周期。
+
+无 Context 的 `Lemon.put()` 只能表达一个“当前活跃导航位置”。双栏、桌面多窗格等多个 Navigator 同时可见时，最后一次 Route 事件决定当前 owner，框架无法从无 Context 调用反推出调用方属于哪个 Navigator。此类界面应在每个窗格的 `LxPage.bindings` 中直接注册，并用 `context.lx` 做严格父链查找；不要依赖全局当前 Route 归属。
 
 ### 不监听路由
 

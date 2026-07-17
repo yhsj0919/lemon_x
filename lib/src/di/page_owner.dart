@@ -20,12 +20,22 @@ class LxPageOwner {
   final LxPageOwner? routeParent;
   final LxContainer container;
   bool _active = false;
+  bool _retired = false;
 
   bool get isActive => _active && container.state == LxContainerState.active;
 
   void activate() => LxPageOwners.activate(this);
 
   void deactivate() => LxPageOwners.deactivate(this);
+
+  /// Stops new global lookups from observing this owner's registrations while
+  /// keeping its values alive until [dispose].
+  void retire() {
+    if (_retired || container.state != LxContainerState.active) return;
+    _retired = true;
+    deactivate();
+    container.retireOwnedRegistrations();
+  }
 
   Future<void> dispose() async {
     deactivate();
