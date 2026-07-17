@@ -8,6 +8,7 @@ export 'src/di/errors.dart';
 export 'src/di/lemon.dart';
 export 'src/flutter/context_extension.dart';
 export 'src/flutter/lemon_app.dart';
+export 'src/flutter/lemon_route_observer.dart';
 export 'src/flutter/lx_scope.dart';
 export 'src/flutter/lx_state_owner.dart';
 export 'src/flutter/obx.dart';

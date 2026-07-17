@@ -162,7 +162,7 @@ Future<void> _runBenchmark() async {
     operations,
   );
 
-  lx.Lemon.putInstance<_Service>(const _Service(7));
+  lx.Lemon.putInstance<_Service>(const _Service(7), permanent: true);
   _row(
     'DI global find',
     _sample(() {

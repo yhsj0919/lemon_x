@@ -1,6 +1,6 @@
 # LemonX 依赖注入重构计划
 
-状态：已按确认方案实现  
+状态：canonical 与所有权内核已实现；页面主路径已演进为 `LemonRouteObserver / LxPage + Lemon.put/find`，当前页面 API 以 [页面生命周期设计](page_lifecycle_design.md) 为准。
 目标版本：0.2.0
 
 ## 1. 背景
@@ -12,7 +12,7 @@
 - 页面注册的 Controller 可以在页面、弹窗和异步回调中随用随取；
 - 默认由页面作用域持有，页面销毁时自动回收；
 - 显式指定 `permanent: true` 后常驻到应用根作用域；
-- 不接管 Navigator，不要求 RouteObserver，不绑定 go_router；
+- 不接管 Navigator；Route Observer 仅作为可选生命周期适配，不绑定 go_router；
 - 多页面注册相同类型时行为确定且可诊断。
 
 这里的“用完自动回收”定义为“生命周期所有者（`State` 或 `LxScope`）销毁后回收”，不采用引用计数。引用计数无法可靠识别闭包、Future、Stream 和 Flutter Element 持有的对象，容易过早销毁。
@@ -53,7 +53,7 @@ bindings: (it) => it.put(
 也可以继续在 composition root 使用：
 
 ```dart
-Lemon.put(SessionController.new);
+Lemon.put(SessionController.new, permanent: true);
 ```
 
 ## 3. 建议 API
@@ -163,7 +163,7 @@ final existing = context.lx.find<LoginController>();
 根作用域注册同样返回实例：
 
 ```dart
-final session = Lemon.put(SessionController.new);
+final session = Lemon.put(SessionController.new, permanent: true);
 ```
 
 ### 3.4 StatefulWidget 生命周期入口
@@ -288,10 +288,10 @@ showDialog<void>(
 
 建议：
 
-- `Lemon.put()`：根容器注册，等价于 permanent，并返回注册实例；
+- `Lemon.put()`：默认注册到当前 `LemonRouteObserver` 或 `LxPage` owner；`permanent: true` 注册到根容器；
 - `Lemon.find()`：返回 `(Type, tag)` 唯一的全局可见注册；
 - `Lemon.contains()`：检查全局可见注册；
-- `Lemon.remove()`：只允许删除 owner 为根容器的注册；命中页面 Scope 注册时抛出所有权错误；
+- `Lemon.remove()`：允许删除根注册或当前页面 owner 持有的注册；禁止跨页面删除；
 - `Lemon.reset()`：只清理根容器注册，不跨页面清理仍挂载的 Scope；
 - `Lemon.dispose()`：销毁根容器及其所有子 Scope，重建全新根容器。
 
@@ -303,9 +303,9 @@ showDialog<void>(
 
 无法区分当前页面、后台页面、Tab 和多个 Navigator，容易返回错误 Controller。
 
-### 9.2 自动监听 RouteObserver
+### 9.2 强制接管路由
 
-需要用户向每个 Navigator 安装 Observer；嵌套 Navigator 和 go_router 配置不同，会让 DI 与路由实现耦合。
+不替换 MaterialApp、Navigator、go_router 或用户的导航 API。当前只提供可选 `LemonRouteObserver`，由用户安装到需要自动页面销毁的 Navigator。
 
 ### 9.3 引用计数自动销毁
 
@@ -351,8 +351,8 @@ Flutter 没有对任意 InheritedWidget 提供透明跨 Route 继承机制，最
 - `context.lx.put()` 返回实例且由最近页面 Scope 自动回收；
 - `LxStateOwner.put()` 返回实例，并在 State 销毁时自动回收且仅执行一次 dispose；
 - `LxScope.put()` 在不能使用 Mixin 时具备相同的自动回收语义；
-- `Lemon.put()` 返回实例且由根容器持有；
-- `Lemon.remove()` 无法删除页面 Scope 持有的注册；
+- `Lemon.put()` 默认由当前页面 owner 持有，`permanent: true` 由根容器持有；
+- `Lemon.remove()` 无法跨页面删除其他 owner 持有的注册；
 - 多 Navigator 同 key 共享实例，不同 tag 保持隔离。
 
 ### 阶段 D：性能验证
@@ -389,5 +389,5 @@ Flutter 没有对任意 InheritedWidget 提供透明跨 Route 继承机制，最
 6. `Lemon.remove<T>()` 是否禁止删除页面 Scope 持有的注册？已确认：是。
 7. `Lemon.reset()` 是否只清理根注册，页面注册继续由各自 Scope 管理？已确认：是。
 8. 多 Navigator 使用相同 `(Type, tag)` 时是否共享第一次注册的实例，需要独立实例时由调用方提供 tag？已确认：是。
-9. 页面生命周期入口是否同时保留 `LxStateOwner` Mixin 与 `LxScope`？已确认：是；能使用 Mixin 时优先使用，不能使用时套一层 `LxScope`。
+9. 页面生命周期入口是否保留 `LxStateOwner` 与 `LxScope`？已确认：保留为进阶 API；主路径使用 `LemonRouteObserver` 或 `LxPage` 配合 `Lemon.put/find`。
 10. 是否公开 `owner: state` 和 `disposeOwner` 供业务手动管理？已确认：否；owner 仅作为内部机制。

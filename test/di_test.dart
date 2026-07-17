@@ -425,12 +425,12 @@ void main() {
   );
 
   test('Lemon global entry can reset its root safely', () async {
-    Lemon.put(() => _Service(1));
+    Lemon.put(() => _Service(1), permanent: true);
     expect(Lemon.find<_Service>().id, 1);
     await Lemon.reset();
     expect(Lemon.contains<_Service>(), isFalse);
 
-    Lemon.put(() => _Service(2));
+    Lemon.put(() => _Service(2), permanent: true);
     final previous = Lemon.root;
     await Lemon.dispose();
 
@@ -439,11 +439,20 @@ void main() {
     expect(() => Lemon.find<_Service>(), throwsA(isA<LxNotFoundError>()));
   });
 
+  test('Lemon requires an active page owner for non-permanent put', () {
+    expect(
+      () => Lemon.put(() => _Service(1)),
+      throwsA(isA<LxNoPageScopeError>()),
+    );
+    expect(Lemon.contains<_Service>(), isFalse);
+  });
+
   test('Lemon root proxies ownership and removal options', () async {
     var disposals = 0;
     Lemon.putInstance<_Service>(
       _Service(1),
       owned: true,
+      permanent: true,
       dispose: (_) => disposals++,
     );
     expect(await Lemon.remove<_Service>(), isTrue);
@@ -492,7 +501,7 @@ void main() {
   test('root reset leaves page-owned registrations active', () async {
     final page = LxContainer(parent: Lemon.root, debugLabel: 'page');
     final pageService = page.put(() => _Service(2), tag: 'page');
-    Lemon.put(() => _Service(1), tag: 'root');
+    Lemon.put(() => _Service(1), tag: 'root', permanent: true);
 
     await Lemon.reset();
 

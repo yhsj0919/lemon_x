@@ -17,6 +17,11 @@ class LxOwnershipError extends LxError {
   LxOwnershipError(super.message);
 }
 
+/// Thrown when a page-owned registration has no active page lifetime.
+class LxNoPageScopeError extends LxError {
+  LxNoPageScopeError(super.message);
+}
+
 /// Thrown when a reactive or dependency graph contains a cycle.
 class LxCircularDependencyError extends LxError {
   LxCircularDependencyError(super.message);

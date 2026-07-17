@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lemon_x/lemon_x.dart';
@@ -34,6 +36,43 @@ class _StateOwnerPageState extends State<_StateOwnerPage>
 
   @override
   Widget build(BuildContext context) => const SizedBox();
+}
+
+class _RouteOwnedPage extends StatefulWidget {
+  const _RouteOwnedPage({required this.onCreated});
+
+  final void Function(_PageController controller) onCreated;
+
+  @override
+  State<_RouteOwnedPage> createState() => _RouteOwnedPageState();
+}
+
+class _RouteOwnedPageState extends State<_RouteOwnedPage> {
+  final controller = Lemon.put(_PageController.new);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.onCreated(controller);
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox();
+}
+
+class _DialogController extends LxController {}
+
+class _AmbientPageBody extends StatelessWidget {
+  const _AmbientPageBody({required this.onBuild});
+
+  final void Function(_PageController controller) onBuild;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Lemon.put(_PageController.new);
+    onBuild(controller);
+    return const SizedBox();
+  }
 }
 
 void main() {
@@ -144,6 +183,245 @@ void main() {
     await tester.pump();
     expect(controller.isDisposed, isTrue);
     expect(Lemon.contains<_PageController>(), isFalse);
+  });
+
+  testWidgets('LxPage owns Lemon.put and tolerates repeated builds', (
+    tester,
+  ) async {
+    final controllers = <_PageController>[];
+    Widget page() => LxPage(child: _AmbientPageBody(onBuild: controllers.add));
+
+    await tester.pumpWidget(page());
+    await tester.pumpWidget(page());
+
+    expect(controllers, hasLength(2));
+    expect(identical(controllers.first, controllers.last), isTrue);
+    expect(identical(Lemon.find<_PageController>(), controllers.first), isTrue);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    expect(controllers.first.isDisposed, isTrue);
+    expect(Lemon.contains<_PageController>(), isFalse);
+  });
+
+  testWidgets('route observer owns field-initialized Lemon.put', (
+    tester,
+  ) async {
+    final navigatorKey = GlobalKey<NavigatorState>();
+    late _PageController controller;
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        navigatorObservers: [LemonRouteObserver()],
+        home: const SizedBox(),
+      ),
+    );
+
+    navigatorKey.currentState!.push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: '/login'),
+        builder: (_) =>
+            _RouteOwnedPage(onCreated: (value) => controller = value),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(identical(Lemon.find<_PageController>(), controller), isTrue);
+    navigatorKey.currentState!.pop();
+    await tester.pumpAndSettle();
+    await tester.pump();
+    expect(controller.isDisposed, isTrue);
+    expect(Lemon.contains<_PageController>(), isFalse);
+  });
+
+  testWidgets('route owner calls onReady once after its first frame', (
+    tester,
+  ) async {
+    final navigatorKey = GlobalKey<NavigatorState>();
+    late _ReadyController controller;
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        navigatorObservers: [LemonRouteObserver()],
+        home: const SizedBox(),
+      ),
+    );
+    navigatorKey.currentState!.push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) {
+          controller = Lemon.put(_ReadyController.new);
+          return const SizedBox();
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(controller.readyCalls, 1);
+    await tester.pump();
+    expect(controller.readyCalls, 1);
+    navigatorKey.currentState!.pop();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('dialog finds page controller and owns its own put', (
+    tester,
+  ) async {
+    final navigatorKey = GlobalKey<NavigatorState>();
+    late _PageController pageController;
+    late _PageController foundFromDialog;
+    late _DialogController dialogController;
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        navigatorObservers: [LemonRouteObserver()],
+        home: const SizedBox(),
+      ),
+    );
+    navigatorKey.currentState!.push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            _RouteOwnedPage(onCreated: (value) => pageController = value),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final pageContext = tester.element(find.byType(_RouteOwnedPage));
+    unawaited(
+      showDialog<void>(
+        context: pageContext,
+        builder: (_) {
+          foundFromDialog = Lemon.find<_PageController>();
+          dialogController = Lemon.put(_DialogController.new);
+          return const SizedBox();
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(identical(foundFromDialog, pageController), isTrue);
+    expect(dialogController.isDisposed, isFalse);
+    await expectLater(
+      Lemon.remove<_PageController>(),
+      throwsA(isA<LxOwnershipError>()),
+    );
+    expect(pageController.isDisposed, isFalse);
+    navigatorKey.currentState!.pop();
+    await tester.pumpAndSettle();
+    await tester.pump();
+    expect(dialogController.isDisposed, isTrue);
+    expect(pageController.isDisposed, isFalse);
+
+    navigatorKey.currentState!.pop();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('route replacement creates a new canonical controller', (
+    tester,
+  ) async {
+    final navigatorKey = GlobalKey<NavigatorState>();
+    late _PageController first;
+    late _PageController second;
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        navigatorObservers: [LemonRouteObserver()],
+        home: const SizedBox(),
+      ),
+    );
+    navigatorKey.currentState!.push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => _RouteOwnedPage(onCreated: (value) => first = value),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    navigatorKey.currentState!.pushReplacement<void, void>(
+      MaterialPageRoute<void>(
+        builder: (_) => _RouteOwnedPage(onCreated: (value) => second = value),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(first.isDisposed, isTrue);
+    expect(identical(first, second), isFalse);
+    expect(identical(Lemon.find<_PageController>(), second), isTrue);
+    navigatorKey.currentState!.pop();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('removing a route disposes its page owner', (tester) async {
+    final navigatorKey = GlobalKey<NavigatorState>();
+    late _PageController controller;
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        navigatorObservers: [LemonRouteObserver()],
+        home: const SizedBox(),
+      ),
+    );
+    final route = MaterialPageRoute<void>(
+      builder: (_) => _RouteOwnedPage(onCreated: (value) => controller = value),
+    );
+    navigatorKey.currentState!.push<void>(route);
+    await tester.pumpAndSettle();
+
+    navigatorKey.currentState!.removeRoute(route);
+    await tester.pump();
+
+    expect(controller.isDisposed, isTrue);
+    expect(Lemon.contains<_PageController>(), isFalse);
+  });
+
+  testWidgets('separate observers isolate multiple Navigator lifetimes', (
+    tester,
+  ) async {
+    final leftKey = GlobalKey<NavigatorState>();
+    final rightKey = GlobalKey<NavigatorState>();
+    Navigator navigator(GlobalKey<NavigatorState> key) => Navigator(
+      key: key,
+      observers: [LemonRouteObserver()],
+      onGenerateRoute: (_) =>
+          MaterialPageRoute<void>(builder: (_) => const SizedBox()),
+    );
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Row(
+          children: [
+            Expanded(child: navigator(leftKey)),
+            Expanded(child: navigator(rightKey)),
+          ],
+        ),
+      ),
+    );
+    late _PageController left;
+    late _PageController right;
+    leftKey.currentState!.push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) {
+          left = Lemon.put(_PageController.new, tag: 'left');
+          return const SizedBox();
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    rightKey.currentState!.push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) {
+          right = Lemon.put(_PageController.new, tag: 'right');
+          return const SizedBox();
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    leftKey.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(left.isDisposed, isTrue);
+    expect(right.isDisposed, isFalse);
+
+    rightKey.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(right.isDisposed, isTrue);
   });
 
   testWidgets('scope calls onReady once after the first frame', (tester) async {

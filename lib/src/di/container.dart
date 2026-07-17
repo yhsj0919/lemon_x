@@ -514,19 +514,21 @@ class LxContainer {
     return true;
   }
 
-  /// Removes a canonical registration only when this container owns it.
-  Future<bool> removeGlobal<T>({Object? tag}) async {
+  /// Removes a canonical registration owned by this root or [requester].
+  Future<bool> removeGlobal<T>({Object? tag, LxContainer? requester}) async {
     _ensureActive();
     final key = _DependencyKey(T, tag);
     final registration = _registry.registrations[key];
     if (registration == null) return false;
-    if (!identical(registration.owner, this)) {
+    final ownedByRoot = identical(registration.owner, this);
+    final ownedByRequester = identical(registration.owner, requester);
+    if (!ownedByRoot && !ownedByRequester) {
       throw LxOwnershipError(
         '$key is owned by ${registration.owner.debugLabel}; '
-        '$debugLabel cannot remove it.',
+        '${requester?.debugLabel ?? debugLabel} cannot remove it.',
       );
     }
-    return remove<T>(tag: tag);
+    return registration.owner.remove<T>(tag: tag);
   }
 
   /// Removes all registrations while keeping this container active.

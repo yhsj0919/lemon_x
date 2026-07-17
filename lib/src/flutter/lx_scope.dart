@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 
 import '../di/container.dart';
 import '../di/lemon.dart';
+import '../di/page_owner.dart';
 
 /// Registers dependencies through a scope-specific [LxRegistrar].
 typedef LxBindings = void Function(LxRegistrar registrar);
@@ -212,4 +213,70 @@ class _LxInheritedScope extends InheritedWidget {
   @override
   bool updateShouldNotify(_LxInheritedScope oldWidget) =>
       !identical(container, oldWidget.container);
+}
+
+/// Establishes a page owner for [Lemon.put] without observing navigation.
+class LxPage extends StatefulWidget {
+  const LxPage({
+    required this.child,
+    this.bindings,
+    this.debugLabel,
+    super.key,
+  });
+
+  final Widget child;
+  final LxBindings? bindings;
+  final String? debugLabel;
+
+  @override
+  State<LxPage> createState() => _LxPageState();
+}
+
+class _LxPageState extends State<LxPage> {
+  late final LxPageOwner _owner;
+
+  @override
+  void initState() {
+    super.initState();
+    _owner = LxPageOwner.widget(
+      root: Lemon.root,
+      debugLabel: widget.debugLabel ?? 'page-${identityHashCode(widget)}',
+    )..activate();
+    try {
+      widget.bindings?.call(LxRegistrar._(_owner.container));
+    } catch (_) {
+      _disposeOwner();
+      rethrow;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _owner.container.state == LxContainerState.active) {
+        _owner.container.markReady();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      _LxInheritedScope(container: _owner.container, child: widget.child);
+
+  @override
+  void dispose() {
+    _disposeOwner();
+    super.dispose();
+  }
+
+  void _disposeOwner() {
+    unawaited(
+      _owner.dispose().catchError((Object error, StackTrace stack) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stack,
+            library: 'lemon_x',
+            context: ErrorDescription('while disposing an LxPage'),
+          ),
+        );
+      }),
+    );
+  }
 }

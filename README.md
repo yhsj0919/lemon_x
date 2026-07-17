@@ -74,57 +74,60 @@ ValueListenableBuilder<int>(
 
 ## 依赖注入
 
+应用级常驻依赖显式使用 `permanent: true`：
+
 ```dart
-final container = LxContainer(debugLabel: 'app');
+Lemon.put(ApiClient.new, permanent: true);
+```
 
-final api = container.put(() => ApiClient());
+页面推荐只使用 `Lemon.put/find`。安装可选 Route Observer 后，普通注册自动归当前 Route 所有：
 
-container.lazyPut(
-  () => AuthRepository(container.find<ApiClient>()),
+```dart
+MaterialApp(
+  navigatorObservers: [LemonRouteObserver()],
+  home: const LoginPage(),
 );
-
-final repository = container.find<AuthRepository>();
 ```
 
-`put` 是立即构造式注册，并在执行 builder 前按 `(Type, tag)` 去重：
-
 ```dart
-final first = container.put(() => CounterController());
-final second = container.put(() => CounterController());
+class LoginPage extends StatelessWidget {
+  const LoginPage({super.key});
 
-identical(first, second); // true
-```
-
-共享同一根容器的作用域使用唯一 canonical 注册：相同 `(Type, tag)` 始终复用首次注册，后续 builder 不执行，也不会覆盖原所有者。需要多个同类型实例时必须使用不同 `tag`。
-
-已有实例通过 `putInstance` 注册，默认仍由外部管理：
-
-```dart
-container.putInstance(client); // 容器不销毁 client
-container.putInstance(cache, owned: true); // 转移所有权
-```
-
-### Widget 作用域
-
-`StatefulWidget` 页面优先使用 `LxStateOwner`，Controller 会在 `State.dispose()` 时自动回收：
-
-```dart
-class _LoginPageState extends State<LoginPage>
-    with LxStateOwner<LoginPage> {
-  late final controller = put(LoginController.new);
+  @override
+  Widget build(BuildContext context) {
+    final controller = Lemon.put(LoginController.new);
+    return Obx(() => Text('${controller.count.value}'));
+  }
 }
 ```
 
-无法使用 Mixin 时，可以直接套一层轻量作用域：
+Route 从 Navigator 栈移除后，页面注册会先从全局索引撤销，再执行 `onDispose()`。Observer 不接管 push、pop、路由表、参数或重定向；每个 Navigator 应创建自己的 `LemonRouteObserver`。
+
+使用 go_router 时同样只需把 Observer 放入其 `observers` 配置，其他路由 API 保持不变。
+
+### 不监听路由
+
+不安装 Observer 时，用一层 `LxPage` 提供 Widget 生命周期所有权：
 
 ```dart
-LxScope.put(
-  LoginController.new,
-  child: const LoginPageBody(),
+LxPage(
+  child: const LoginPage(),
 );
 ```
 
-需要一次注册多个依赖时使用 `bindings`：
+`LoginPage` 内仍然使用同样的 `Lemon.put/find`，`LxPage` 卸载时自动销毁。未安装 Observer、也没有 `LxPage` 时，非 permanent 的 `Lemon.put()` 会抛出 `LxNoPageScopeError`，不会静默泄漏为根级常驻对象。
+
+任意位置（包括 Dialog、BottomSheet、Overlay 和异步回调）统一查找：
+
+```dart
+final controller = Lemon.find<LoginController>();
+```
+
+相同 `(Type, tag)` 始终复用首次 canonical 注册，后续 builder 不执行、不替换 owner；需要多个同类型实例时使用不同 `tag`。
+
+### 进阶作用域
+
+复杂组装、严格父链查找或非页面子树仍可使用 `LxScope`、`LxStateOwner`、`context.lx` 和独立 `LxContainer`：
 
 ```dart
 LxScope(
@@ -141,28 +144,11 @@ LxScope(
 bindings: (container) => container.put(CounterController.new),
 ```
 
-页面内从最近作用域查找：
-
 ```dart
 final controller = context.lx.find<CounterController>();
 ```
 
-`context.lx.find()` 只查找当前 Scope 到父 Scope；`Lemon.find()` 查找当前全局可见的 canonical 注册，因此普通 `Dialog`、`BottomSheet` 和 `Overlay` 可以直接取得页面 Controller：
-
-```dart
-final controller = Lemon.find<LoginController>();
-```
-
-页面 Scope 或 State 销毁后，注册会先从全局索引移除，再执行 `onDispose()`。`Lemon.remove()` 不能跨页面删除由页面持有的注册。
-
-应用级常驻服务直接放入 `Lemon` 根容器：
-
-```dart
-Lemon.put(() => AnalyticsService());
-final analytics = Lemon.find<AnalyticsService>();
-```
-
-也可以在页面 bindings 中显式指定 `permanent: true`，其所有权会转移到根容器。LemonX 不监听路由；页面自动回收完全由 `State` 或 `LxScope` 的 Widget 生命周期驱动。
+`context.lx.find()` 只查找当前 Scope 到父 Scope；`Lemon.find()` 始终使用全局 canonical 索引。`Lemon.remove()` 只能删除根注册或当前页面 owner 自己持有的注册，不能跨页面删除 Controller。
 
 Repository 和 Service 之间仍建议使用普通构造函数注入，不要在业务类内部访问全局容器。
 
@@ -261,14 +247,14 @@ canonical 全局索引重构后，`core_benchmark.dart` 额外覆盖严格 Scope
 
 | 路径 | LemonX | GetX Plus | 相对结果 |
 | --- | ---: | ---: | ---: |
-| 严格 Scope `find` | **52.7 [50.4–53.5] ns/op** | 544.6 [486.3–619.4] ns/op | LemonX 快约 10.3× |
-| 全局 `Lemon.find` | **54.8 [52.8–69.8] ns/op** | 468.2 [452.3–468.6] ns/op | LemonX 快约 8.5× |
-| Scope 创建 + 注册 + 销毁 | 28.4 [27.9–29.4] μs/周期 | — | 1 万次循环后索引无残留 |
+| 严格 Scope `find` | **48.1 [47.3–52.5] ns/op** | 590.9 [421.7–627.5] ns/op | LemonX 快约 12.3× |
+| 全局 `Lemon.find` | **67.1 [50.8–69.6] ns/op** | 596.1 [556.6–596.3] ns/op | LemonX 快约 8.9× |
+| Scope 创建 + 注册 + 销毁 | 34.3 [22.8–34.7] μs/周期 | — | 1 万次循环后索引无残留 |
 
 严格查找与全局查找处于同一数量级；新增所有权和 canonical 索引主要增加注册、销毁阶段的维护，不会把页面重建或 Rx 读写带入 DI 路径。
 
 ## 项目边界
 
-LemonX 只包含状态管理和依赖注入，不接管 Navigator，也不要求 RouteObserver。页面生命周期通过 `LxStateOwner` 或 `LxScope` 绑定到 Flutter Widget 的销毁时机。
+LemonX 只包含状态管理和依赖注入，不接管 Navigator。页面生命周期可以由可选 `LemonRouteObserver` 驱动，也可以通过 `LxPage`、`LxStateOwner` 或 `LxScope` 绑定到 Flutter Widget 的销毁时机。
 
 迁移说明见 [doc/migration_from_getx.md](doc/migration_from_getx.md)，完整设计见 [doc/design.md](doc/design.md)。

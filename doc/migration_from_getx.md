@@ -31,33 +31,30 @@ class CounterController extends LxController {
 
 ## 依赖注入
 
-应用级服务可以通过根容器注册：
+应用级服务显式注册为 permanent：
 
 ```dart
-Lemon.put<ApiClient>(() => ApiClient());
+Lemon.put(ApiClient.new, permanent: true);
 final api = Lemon.find<ApiClient>();
 ```
 
-`StatefulWidget` 页面可以使用 Mixin，获得接近 `Get.put()` 的声明方式，同时绑定页面生命周期：
+安装可选 Observer 后，页面可以直接使用接近 GetX 的写法：
 
 ```dart
-class _CounterPageState extends State<CounterPage>
-    with LxStateOwner<CounterPage> {
-  late final controller = put(CounterController.new);
-}
-```
-
-无法使用 Mixin，或需要一次注册多个依赖时使用 Widget 作用域：
-
-```dart
-LxScope(
-  bindings: (container) {
-    container.lazyPut<CounterController>(() => CounterController());
-  },
-  child: const CounterPage(),
+MaterialApp(
+  navigatorObservers: [LemonRouteObserver()],
+  home: const CounterPage(),
 );
 
-final controller = context.lx.find<CounterController>();
+final controller = Lemon.put(CounterController.new);
+```
+
+不使用 Observer 时，给页面包一层 `LxPage`：
+
+```dart
+LxPage(
+  child: const CounterPage(),
+);
 ```
 
 普通弹窗不在页面 Widget 子树中，可以通过全局 canonical 索引获取页面注册：
@@ -66,11 +63,11 @@ final controller = context.lx.find<CounterController>();
 final controller = Lemon.find<CounterController>();
 ```
 
-相同 `(Type, tag)` 始终复用首次注册，不提供覆盖或 `fenix`。长期对象使用 `Lemon.put()`，也可以在 bindings 中指定 `permanent: true`；页面对象放在 `LxStateOwner` 或 `LxScope`，需要延迟创建时使用 `lazyPut()`。
+相同 `(Type, tag)` 始终复用首次注册，不提供覆盖或 `fenix`。非 permanent 注册必须存在当前 Route 或 `LxPage` owner，否则会抛出 `LxNoPageScopeError`，不会静默变成根级常驻对象。
 
 ## 导航
 
-删除 `GetMaterialApp`、`Get.to()`、`Get.back()` 和 `GetPage` 等调用，改用 Flutter `Navigator` 或独立路由包。LemonX 不接管路由生命周期；页面离开 Widget 树时，由 `LxStateOwner` 或包裹页面的 `LxScope` 释放依赖。
+删除 `GetMaterialApp`、`Get.to()`、`Get.back()` 和 `GetPage` 等调用，继续使用 Flutter `Navigator`、go_router 或自研路由。`LemonRouteObserver` 只把 Route 进出翻译为页面 Scope 创建和销毁，不管理路径、参数、重定向或导航 API。
 
 ## 退出 LemonX
 

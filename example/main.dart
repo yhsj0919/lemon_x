@@ -10,11 +10,9 @@ class ExampleApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LemonApp(
-      bindings: (container) {
-        container.lazyPut(CounterController.new);
-      },
-      child: const MaterialApp(home: CounterPage()),
+    return MaterialApp(
+      navigatorObservers: [LemonRouteObserver()],
+      home: const CounterPage(),
     );
   }
 }
@@ -30,7 +28,7 @@ class CounterPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final controller = context.lx.find<CounterController>();
+    final controller = Lemon.put(CounterController.new);
 
     return Scaffold(
       appBar: AppBar(title: const Text('LemonX')),
