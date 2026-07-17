@@ -1,12 +1,19 @@
 import 'package:flutter/foundation.dart';
 
 /// Kinds of structured dependency-container events.
-enum LxDiEventType { register, create, find, duplicate, replace, remove, dispose, reset }
+enum LxDiEventType { register, create, find, duplicate, remove, dispose, reset }
 
 /// A structured, value-safe dependency-container lifecycle event.
 @immutable
 class LxDiEvent {
-  const LxDiEvent({required this.type, required this.scope, required this.dependencyType, this.tag, this.instanceIdentity, required this.timestamp});
+  const LxDiEvent({
+    required this.type,
+    required this.scope,
+    required this.dependencyType,
+    this.tag,
+    this.instanceIdentity,
+    required this.timestamp,
+  });
 
   final LxDiEventType type;
   final String scope;
@@ -36,7 +43,11 @@ class LxDiagnostics {
   static void Function(LxDiEvent event)? onEvent;
 
   /// Updates diagnostics configuration.
-  static void configure({bool? enabled, bool? logFind, void Function(LxDiEvent event)? onEvent}) {
+  static void configure({
+    bool? enabled,
+    bool? logFind,
+    void Function(LxDiEvent event)? onEvent,
+  }) {
     if (enabled != null) LxDiagnostics.enabled = enabled;
     if (logFind != null) LxDiagnostics.logFind = logFind;
     if (onEvent != null) LxDiagnostics.onEvent = onEvent;

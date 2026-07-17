@@ -1,6 +1,13 @@
+## 0.2.0
+
+* 重构依赖注入：每棵容器树中的 `(Type, tag)` 只保留一条 canonical 注册，页面依赖默认全局可发现，重复注册始终复用首次注册。
+* 新增 `LxStateOwner` 和 `LxScope.put` 页面生命周期入口，无需监听路由，也不与具体路由框架耦合。
+* 新增 `permanent` 根容器所有权，禁止通过全局 API 删除页面持有的注册，并移除替换和作用域遮蔽规则。
+* 完善异步注册的移除与销毁流程，补充生命周期、所有权测试以及 DI 查找和作用域生命周期基准测试。
+
 ## 0.1.0
 
-* Stable reactive state management with Rx, Obx, collections, workers, computed values, effects, batching and three-state RxAsync.
-* Scoped dependency injection with sync/async factories, explicit ownership, lifecycle management and circular-dependency detection.
-* Flutter scope, BuildContext integration and ValueListenable interoperability.
-* Correctness and lifecycle coverage for dynamic dependencies, async cleanup, initialization rollback and duplicate-instance disposal.
+* 提供稳定的响应式状态管理能力，包括 Rx、Obx、响应式集合、Worker、计算属性、Effect、批处理和三态 `RxAsync`。
+* 提供作用域依赖注入，支持同步与异步工厂、显式所有权、生命周期管理和循环依赖检测。
+* 提供 Flutter 作用域、BuildContext 扩展以及与 `ValueListenable` 的互操作能力。
+* 完善动态依赖、异步清理、初始化失败回滚和重复实例销毁等正确性与生命周期测试。

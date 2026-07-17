@@ -37,15 +37,14 @@ class Lemon {
     LxDisposer<T>? dispose,
   }) => _root.putAsync(builder, tag: tag, dispose: dispose);
 
-  static T find<T>({Object? tag}) => _root.find<T>(tag: tag);
-  static Future<T> findAsync<T>({Object? tag}) => _root.findAsync<T>(tag: tag);
+  static T find<T>({Object? tag}) => _root.findGlobal<T>(tag: tag);
+  static Future<T> findAsync<T>({Object? tag}) =>
+      _root.findAsyncGlobal<T>(tag: tag);
 
-  static bool contains<T>({Object? tag}) => _root.contains<T>(tag: tag);
+  static bool contains<T>({Object? tag}) => _root.containsGlobal<T>(tag: tag);
 
-  static Future<bool> remove<T>({Object? tag}) => _root.remove<T>(tag: tag);
-
-  static Future<T> replace<T>(LxFactory<T> builder, {Object? tag}) =>
-      _root.replace(builder, tag: tag);
+  static Future<bool> remove<T>({Object? tag}) =>
+      _root.removeGlobal<T>(tag: tag);
 
   static Future<void> reset() => _root.reset();
 

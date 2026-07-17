@@ -12,9 +12,9 @@ class LxNotFoundError extends LxError {
   LxNotFoundError(super.message);
 }
 
-/// Thrown when a registration conflicts with an existing registration.
-class LxAlreadyRegisteredError extends LxError {
-  LxAlreadyRegisteredError(super.message);
+/// Thrown when a caller attempts to remove a dependency owned by another scope.
+class LxOwnershipError extends LxError {
+  LxOwnershipError(super.message);
 }
 
 /// Thrown when a reactive or dependency graph contains a cycle.

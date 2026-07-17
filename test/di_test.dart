@@ -110,16 +110,40 @@ void main() {
     await container.dispose();
   });
 
-  test('child shadows parent and falls back after child disposal', () async {
+  test('child reuses the first canonical registration', () async {
     final root = LxContainer(debugLabel: 'root');
     final child = LxContainer(parent: root, debugLabel: 'child');
+    var childBuilds = 0;
     root.put(() => _Service(1));
-    child.put(() => _Service(2));
+    final fromChild = child.put(() => _Service(++childBuilds + 1));
 
-    expect(child.find<_Service>().id, 2);
+    expect(fromChild.id, 1);
     expect(root.find<_Service>().id, 1);
+    expect(child.find<_Service>().id, 1);
+    expect(childBuilds, 0);
     await child.dispose();
     expect(root.find<_Service>().id, 1);
+    await root.dispose();
+  });
+
+  test('duplicate scope aliases neither own nor extend the instance', () async {
+    final events = <String>[];
+    final root = LxContainer(debugLabel: 'root');
+    final firstPage = LxContainer(parent: root, debugLabel: 'first-page');
+    final secondPage = LxContainer(parent: root, debugLabel: 'second-page');
+    final controller = firstPage.put(
+      () => _TrackedController(events, 'shared'),
+    );
+    final duplicate = secondPage.put(
+      () => _TrackedController(events, 'unused'),
+    );
+
+    expect(identical(controller, duplicate), isTrue);
+    await secondPage.dispose();
+    expect(controller.isDisposed, isFalse);
+    await firstPage.dispose();
+    expect(controller.isDisposed, isTrue);
+    expect(root.containsGlobal<_TrackedController>(), isFalse);
     await root.dispose();
   });
 
@@ -261,8 +285,8 @@ void main() {
     final events = <String>[];
     final root = LxContainer(debugLabel: 'root');
     final child = LxContainer(parent: root, debugLabel: 'child');
-    root.put(() => _TrackedController(events, 'root'));
-    child.put(() => _TrackedController(events, 'child'));
+    root.put(() => _TrackedController(events, 'root'), tag: 'root');
+    child.put(() => _TrackedController(events, 'child'), tag: 'child');
 
     await root.dispose();
 
@@ -343,7 +367,7 @@ void main() {
     expect(container.state, LxContainerState.disposed);
   });
 
-  test('factory, remove, replace, and reset have explicit semantics', () async {
+  test('factory, remove, and reset have explicit semantics', () async {
     final container = LxContainer(debugLabel: 'test');
     var builds = 0;
     container.factory(() => _Service(++builds));
@@ -352,7 +376,7 @@ void main() {
 
     await container.remove<_Service>();
     container.put(() => _Service(3));
-    expect((await container.replace(() => _Service(4))).id, 4);
+    expect(container.find<_Service>().id, 3);
     await container.reset();
     expect(container.contains<_Service>(), isFalse);
     expect(container.state, LxContainerState.active);
@@ -400,7 +424,7 @@ void main() {
     },
   );
 
-  test('Lemon global entry can reset and replace its root safely', () async {
+  test('Lemon global entry can reset its root safely', () async {
     Lemon.put(() => _Service(1));
     expect(Lemon.find<_Service>().id, 1);
     await Lemon.reset();
@@ -415,15 +439,98 @@ void main() {
     expect(() => Lemon.find<_Service>(), throwsA(isA<LxNotFoundError>()));
   });
 
-  test('Lemon root proxies ownership and replacement options', () async {
+  test('Lemon root proxies ownership and removal options', () async {
     var disposals = 0;
     Lemon.putInstance<_Service>(
       _Service(1),
       owned: true,
       dispose: (_) => disposals++,
     );
-    expect((await Lemon.replace(() => _Service(2))).id, 2);
+    expect(await Lemon.remove<_Service>(), isTrue);
     expect(disposals, 1);
+    expect(Lemon.contains<_Service>(), isFalse);
     await Lemon.dispose();
+  });
+
+  test(
+    'Lemon finds page-owned registrations through the global index',
+    () async {
+      final page = LxContainer(parent: Lemon.root, debugLabel: 'page');
+      final controller = page.put(() => _Service(7));
+
+      expect(identical(Lemon.find<_Service>(), controller), isTrue);
+      expect(Lemon.contains<_Service>(), isTrue);
+      await page.dispose();
+      expect(Lemon.contains<_Service>(), isFalse);
+    },
+  );
+
+  test('Lemon cannot remove a page-owned registration', () async {
+    final page = LxContainer(parent: Lemon.root, debugLabel: 'page');
+    page.put(() => _Service(1));
+
+    await expectLater(
+      Lemon.remove<_Service>(),
+      throwsA(isA<LxOwnershipError>()),
+    );
+    expect(Lemon.find<_Service>().id, 1);
+    await page.dispose();
+  });
+
+  test(
+    'permanent registration requested by a child is owned by root',
+    () async {
+      final page = LxContainer(parent: Lemon.root, debugLabel: 'page');
+      final service = page.put(() => _Service(9), permanent: true);
+
+      await page.dispose();
+      expect(identical(Lemon.find<_Service>(), service), isTrue);
+      expect(await Lemon.remove<_Service>(), isTrue);
+    },
+  );
+
+  test('root reset leaves page-owned registrations active', () async {
+    final page = LxContainer(parent: Lemon.root, debugLabel: 'page');
+    final pageService = page.put(() => _Service(2), tag: 'page');
+    Lemon.put(() => _Service(1), tag: 'root');
+
+    await Lemon.reset();
+
+    expect(Lemon.contains<_Service>(tag: 'root'), isFalse);
+    expect(identical(Lemon.find<_Service>(tag: 'page'), pageService), isTrue);
+    await page.dispose();
+  });
+
+  test('scope registrations are hidden before their disposer runs', () async {
+    final page = LxContainer(parent: Lemon.root, debugLabel: 'page');
+    var visibleDuringDispose = true;
+    page.put(
+      () => _Service(1),
+      dispose: (_) {
+        visibleDuringDispose = Lemon.contains<_Service>();
+      },
+    );
+
+    await page.dispose();
+
+    expect(visibleDuringDispose, isFalse);
+  });
+
+  test('removing a pending async registration disposes its result', () async {
+    final page = LxContainer(parent: Lemon.root, debugLabel: 'page');
+    final completer = Completer<_Service>();
+    var disposals = 0;
+    final pending = page.putAsync(
+      () => completer.future,
+      dispose: (_) => disposals++,
+    );
+    final removing = page.remove<_Service>();
+    completer.complete(_Service(1));
+
+    await pending;
+    expect(await removing, isTrue);
+    expect(disposals, 1);
+    expect(Lemon.contains<_Service>(), isFalse);
+    await page.dispose();
   });
 }

@@ -1,6 +1,6 @@
 name: lemon_x
 description: "Lightweight reactive state management and scoped dependency injection for Flutter."
-version: 0.1.0
+version: 0.2.0
 homepage: https://github.com/yhsj0919/lemon_x
 repository: https://github.com/yhsj0919/lemon_x
 issue_tracker: https://github.com/yhsj0919/lemon_x/issues

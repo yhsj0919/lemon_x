@@ -38,7 +38,16 @@ Lemon.put<ApiClient>(() => ApiClient());
 final api = Lemon.find<ApiClient>();
 ```
 
-页面依赖使用显式 Widget 作用域：
+`StatefulWidget` 页面可以使用 Mixin，获得接近 `Get.put()` 的声明方式，同时绑定页面生命周期：
+
+```dart
+class _CounterPageState extends State<CounterPage>
+    with LxStateOwner<CounterPage> {
+  late final controller = put(CounterController.new);
+}
+```
+
+无法使用 Mixin，或需要一次注册多个依赖时使用 Widget 作用域：
 
 ```dart
 LxScope(
@@ -51,11 +60,17 @@ LxScope(
 final controller = context.lx.find<CounterController>();
 ```
 
-LemonX 不提供 `permanent` 或 `fenix`。长期对象放在根容器；页面对象放在 `LxScope`；需要延迟创建时使用 `lazyPut()`。
+普通弹窗不在页面 Widget 子树中，可以通过全局 canonical 索引获取页面注册：
+
+```dart
+final controller = Lemon.find<CounterController>();
+```
+
+相同 `(Type, tag)` 始终复用首次注册，不提供覆盖或 `fenix`。长期对象使用 `Lemon.put()`，也可以在 bindings 中指定 `permanent: true`；页面对象放在 `LxStateOwner` 或 `LxScope`，需要延迟创建时使用 `lazyPut()`。
 
 ## 导航
 
-删除 `GetMaterialApp`、`Get.to()`、`Get.back()` 和 `GetPage` 等调用，改用 Flutter `Navigator` 或独立路由包。LemonX 不接管路由生命周期；页面离开 Widget 树时，由包裹页面的 `LxScope` 释放依赖。
+删除 `GetMaterialApp`、`Get.to()`、`Get.back()` 和 `GetPage` 等调用，改用 Flutter `Navigator` 或独立路由包。LemonX 不接管路由生命周期；页面离开 Widget 树时，由 `LxStateOwner` 或包裹页面的 `LxScope` 释放依赖。
 
 ## 退出 LemonX
 

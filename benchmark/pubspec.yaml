@@ -1,7 +1,7 @@
 name: lemon_x_benchmark
 description: Local benchmarks for lemon_x. This package is not published.
 publish_to: none
-version: 0.1.0
+version: 0.2.0
 
 environment:
   sdk: ^3.12.2

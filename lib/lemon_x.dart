@@ -9,6 +9,7 @@ export 'src/di/lemon.dart';
 export 'src/flutter/context_extension.dart';
 export 'src/flutter/lemon_app.dart';
 export 'src/flutter/lx_scope.dart';
+export 'src/flutter/lx_state_owner.dart';
 export 'src/flutter/obx.dart';
 export 'src/flutter/rx_builder.dart';
 export 'src/reactive/rx.dart';

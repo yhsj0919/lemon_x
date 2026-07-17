@@ -67,6 +67,7 @@ void main() {
 }
 
 Future<void> _runBenchmark() async {
+  lx.LxDiagnostics.enabled = false;
   print('Dart VM core benchmark (median of $samples, $operations operations)');
   print('Lower is better. Ratio = getx_plus / lemon_x.');
   print(
@@ -161,6 +162,26 @@ Future<void> _runBenchmark() async {
     operations,
   );
 
+  lx.Lemon.putInstance<_Service>(const _Service(7));
+  _row(
+    'DI global find',
+    _sample(() {
+      var total = 0;
+      for (var i = 0; i < operations; i++) {
+        total += lx.Lemon.find<_Service>().id;
+      }
+      _sink ^= total;
+    }),
+    _sample(() {
+      var total = 0;
+      for (var i = 0; i < operations; i++) {
+        total += gx.Get.find<_Service>().id;
+      }
+      _sink ^= total;
+    }),
+    operations,
+  );
+
   const allocationCount = 100000;
   _row(
     'Rx object allocation',
@@ -182,6 +203,7 @@ Future<void> _runBenchmark() async {
   );
 
   await lemonContainer.dispose();
+  await lx.Lemon.dispose();
   gx.Get.delete<_Service>(force: true);
   for (final value in lemonRead) value.dispose();
   lemonWrite.dispose();
@@ -189,5 +211,23 @@ Future<void> _runBenchmark() async {
   for (final value in getxRead) value.close();
   getxWrite.close();
   getxNotify.close();
+
+  const scopeCycles = 10000;
+  final lifecycleWatch = Stopwatch()..start();
+  for (var i = 0; i < scopeCycles; i++) {
+    final scope = lx.LxContainer(parent: lx.Lemon.root);
+    scope.put(() => _Service(i));
+    await scope.dispose();
+  }
+  lifecycleWatch.stop();
+  if (lx.Lemon.contains<_Service>()) {
+    throw StateError('Scope lifecycle benchmark left a global registration.');
+  }
+  final lifecycleNs = _nsPerOp(
+    lifecycleWatch.elapsedMicroseconds,
+    scopeCycles,
+  ).toStringAsFixed(1).padLeft(12);
+  print('${'DI scope create/dispose'.padRight(25)}$lifecycleNs lemon ns/cycle');
+  await lx.Lemon.dispose();
   print('checksum: $_sink');
 }

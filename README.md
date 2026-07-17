@@ -95,6 +95,8 @@ final second = container.put(() => CounterController());
 identical(first, second); // true
 ```
 
+共享同一根容器的作用域使用唯一 canonical 注册：相同 `(Type, tag)` 始终复用首次注册，后续 builder 不执行，也不会覆盖原所有者。需要多个同类型实例时必须使用不同 `tag`。
+
 已有实例通过 `putInstance` 注册，默认仍由外部管理：
 
 ```dart
@@ -104,13 +106,39 @@ container.putInstance(cache, owned: true); // 转移所有权
 
 ### Widget 作用域
 
+`StatefulWidget` 页面优先使用 `LxStateOwner`，Controller 会在 `State.dispose()` 时自动回收：
+
+```dart
+class _LoginPageState extends State<LoginPage>
+    with LxStateOwner<LoginPage> {
+  late final controller = put(LoginController.new);
+}
+```
+
+无法使用 Mixin 时，可以直接套一层轻量作用域：
+
+```dart
+LxScope.put(
+  LoginController.new,
+  child: const LoginPageBody(),
+);
+```
+
+需要一次注册多个依赖时使用 `bindings`：
+
 ```dart
 LxScope(
   bindings: (container) {
-    container.lazyPut(() => CounterController());
+    container.lazyPut(CounterController.new);
   },
   child: const CounterPage(),
 );
+```
+
+`bindings` 使用专用注册器，`put()` 和 `lazyPut()` 会直接从构造函数推断类型。代码块和箭头写法都安全：
+
+```dart
+bindings: (container) => container.put(CounterController.new),
 ```
 
 页面内从最近作用域查找：
@@ -119,12 +147,22 @@ LxScope(
 final controller = context.lx.find<CounterController>();
 ```
 
-作用域卸载后，其拥有的 Controller 会执行 `onDispose()`。应用级服务可以放入 `Lemon` 根容器：
+`context.lx.find()` 只查找当前 Scope 到父 Scope；`Lemon.find()` 查找当前全局可见的 canonical 注册，因此普通 `Dialog`、`BottomSheet` 和 `Overlay` 可以直接取得页面 Controller：
+
+```dart
+final controller = Lemon.find<LoginController>();
+```
+
+页面 Scope 或 State 销毁后，注册会先从全局索引移除，再执行 `onDispose()`。`Lemon.remove()` 不能跨页面删除由页面持有的注册。
+
+应用级常驻服务直接放入 `Lemon` 根容器：
 
 ```dart
 Lemon.put(() => AnalyticsService());
 final analytics = Lemon.find<AnalyticsService>();
 ```
+
+也可以在页面 bindings 中显式指定 `permanent: true`，其所有权会转移到根容器。LemonX 不监听路由；页面自动回收完全由 `State` 或 `LxScope` 的 Widget 生命周期驱动。
 
 Repository 和 Service 之间仍建议使用普通构造函数注入，不要在业务类内部访问全局容器。
 
@@ -167,7 +205,7 @@ final database = await container.findAsync<Database>();
 
 以下结果用于观察不同状态管理实现自身的相对开销，不代表完整应用的 FPS。测试环境为 Windows x64、Flutter 3.44.6、Dart 3.12.2，使用 `flutter_test` 的 Debug/JIT 模式。每个基准启动 3 个独立测试进程；每个进程先预热，再执行 5 轮并取中位数。表格报告 3 个进程中位数的中位数和 `[最小值–最大值]`，数值越低越好。
 
-对比版本：LemonX 0.1.0、GetX Plus 5.2.0、Provider 6.1.5+1、flutter_bloc 9.1.1、Riverpod 3.3.2、Signals 7.1.0、MobX 2.6.0。
+对比版本：LemonX 0.2.0、GetX Plus 5.2.0、Provider 6.1.5+1、flutter_bloc 9.1.1、Riverpod 3.3.2、Signals 7.1.0、MobX 2.6.0。
 
 ### 状态核心路径
 
@@ -217,8 +255,20 @@ flutter test widget_rebuild_benchmark.dart
 
 完整测试实现见 [`benchmark/`](benchmark/)。
 
+### DI 重构回归
+
+canonical 全局索引重构后，`core_benchmark.dart` 额外覆盖严格 Scope 查找、`Lemon.find()` 全局查找，以及 Scope 创建/注册/销毁。诊断关闭，连续运行 3 个独立测试进程；下表仍报告进程中位数的中位数和 `[最小值–最大值]`。
+
+| 路径 | LemonX | GetX Plus | 相对结果 |
+| --- | ---: | ---: | ---: |
+| 严格 Scope `find` | **52.7 [50.4–53.5] ns/op** | 544.6 [486.3–619.4] ns/op | LemonX 快约 10.3× |
+| 全局 `Lemon.find` | **54.8 [52.8–69.8] ns/op** | 468.2 [452.3–468.6] ns/op | LemonX 快约 8.5× |
+| Scope 创建 + 注册 + 销毁 | 28.4 [27.9–29.4] μs/周期 | — | 1 万次循环后索引无残留 |
+
+严格查找与全局查找处于同一数量级；新增所有权和 canonical 索引主要增加注册、销毁阶段的维护，不会把页面重建或 Rx 读写带入 DI 路径。
+
 ## 项目边界
 
-LemonX 只包含状态管理和依赖注入。未来的 go_router 支持会作为独立适配包，只负责把页面销毁映射为 DI 作用域销毁。
+LemonX 只包含状态管理和依赖注入，不接管 Navigator，也不要求 RouteObserver。页面生命周期通过 `LxStateOwner` 或 `LxScope` 绑定到 Flutter Widget 的销毁时机。
 
 迁移说明见 [doc/migration_from_getx.md](doc/migration_from_getx.md)，完整设计见 [doc/design.md](doc/design.md)。

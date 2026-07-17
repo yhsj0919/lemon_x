@@ -13,6 +13,29 @@ class _ReadyController extends LxController {
   void onReady() => readyCalls++;
 }
 
+class _StateOwnerPage extends StatefulWidget {
+  const _StateOwnerPage({required this.onCreated});
+
+  final void Function(_PageController controller) onCreated;
+
+  @override
+  State<_StateOwnerPage> createState() => _StateOwnerPageState();
+}
+
+class _StateOwnerPageState extends State<_StateOwnerPage>
+    with LxStateOwner<_StateOwnerPage> {
+  late final controller = put(_PageController.new);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.onCreated(controller);
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox();
+}
+
 void main() {
   setUp(() => LxDiagnostics.enabled = false);
   tearDown(() => Lemon.dispose());
@@ -64,7 +87,8 @@ void main() {
       MaterialApp(
         home: LxScope(
           bindings: (it) {
-            controller = it.put(() => _PageController());
+            it.put(_PageController.new);
+            controller = it.find<_PageController>();
           },
           child: Builder(
             builder: (context) {
@@ -77,16 +101,59 @@ void main() {
     );
 
     expect(controller.isDisposed, isFalse);
+    expect(identical(Lemon.find<_PageController>(), controller), isTrue);
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
     expect(controller.isDisposed, isTrue);
+    expect(Lemon.contains<_PageController>(), isFalse);
+  });
+
+  testWidgets('LxScope.put owns one globally discoverable dependency', (
+    tester,
+  ) async {
+    late _PageController controller;
+    await tester.pumpWidget(
+      LxScope.put(
+        _PageController.new,
+        child: Builder(
+          builder: (context) {
+            controller = context.lx.find<_PageController>();
+            return const SizedBox();
+          },
+        ),
+      ),
+    );
+
+    expect(identical(Lemon.find<_PageController>(), controller), isTrue);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    expect(controller.isDisposed, isTrue);
+    expect(Lemon.contains<_PageController>(), isFalse);
+  });
+
+  testWidgets('LxStateOwner registers lazily and disposes with State', (
+    tester,
+  ) async {
+    late _PageController controller;
+    await tester.pumpWidget(
+      _StateOwnerPage(onCreated: (value) => controller = value),
+    );
+
+    expect(identical(Lemon.find<_PageController>(), controller), isTrue);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    expect(controller.isDisposed, isTrue);
+    expect(Lemon.contains<_PageController>(), isFalse);
   });
 
   testWidgets('scope calls onReady once after the first frame', (tester) async {
     late _ReadyController controller;
     await tester.pumpWidget(
       LxScope(
-        bindings: (it) => controller = it.put(() => _ReadyController()),
+        bindings: (it) {
+          it.put(_ReadyController.new);
+          controller = it.find<_ReadyController>();
+        },
         child: const SizedBox(),
       ),
     );
@@ -168,8 +235,7 @@ void main() {
   testWidgets('LemonApp exposes the root without owning it', (tester) async {
     await tester.pumpWidget(
       LemonApp(
-        bindings: (container) =>
-            container.put<_PageController>(() => _PageController()),
+        bindings: (container) => container.put(_PageController.new),
         child: Builder(
           builder: (context) => Text(
             '${context.lx.find<_PageController>().count.value}',

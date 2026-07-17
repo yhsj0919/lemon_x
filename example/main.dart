@@ -12,7 +12,7 @@ class ExampleApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return LemonApp(
       bindings: (container) {
-        container.lazyPut(() => CounterController());
+        container.lazyPut(CounterController.new);
       },
       child: const MaterialApp(home: CounterPage()),
     );

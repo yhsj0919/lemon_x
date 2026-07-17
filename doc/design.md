@@ -1,7 +1,9 @@
 # LemonX 设计文档
 
+> 依赖注入的 canonical 全局索引、页面所有权和弹窗查找语义已完成重构；当前实现以 [依赖注入重构说明](di_redesign_plan.md) 和 README 为准。本文后续章节保留项目演进背景。
+
 > 状态：已接受（Accepted）  
-> 实现版本：0.1.0  
+> 实现版本：0.2.0
 > 包名：`lemon_x`
 
 ## 1. 背景
@@ -230,16 +232,16 @@ final controller = context.lx.find<CounterController>();
 // 2. 普通 Dart 对象：由调用者通过构造函数传入（推荐）
 final repository = AuthRepository(apiClient);
 
-// 3. 应用级服务：从根容器查找
+// 3. 页面弹窗或应用级服务：从全局 canonical 索引查找
 final analytics = Lemon.find<AnalyticsService>();
 ```
 
 规则如下：
 
 - `context.lx.find<T>()` 从最近的页面或 Widget 子树容器开始，逐级查找到根容器；
-- `Lemon.find<T>()` **只查找根容器**，不会自动访问当前 Route 的容器；
-- 页面级 Controller 必须通过 `context.lx.find<T>()` 获取；
-- 应用级 Service 可以通过 `Lemon.find<T>()` 获取；
+- `Lemon.find<T>()` 查找共享根容器树中的唯一 canonical 注册，适用于 Dialog、BottomSheet 和 Overlay；
+- 页面级 Controller 可以在页面中通过 `context.lx.find<T>()` 获取，在脱离页面子树的弹窗中通过 `Lemon.find<T>()` 获取；
+- 应用级 Service 通过 `Lemon.put()` 注册到根容器后，也使用 `Lemon.find<T>()` 获取；
 - Controller、Repository、Service 之间优先使用构造函数注入，不在业务对象内部读取 `BuildContext`；
 - `Obx` 只收集 Rx 依赖，不负责创建或查找 Controller；
 - 找不到依赖时立即抛出 `LxNotFoundError`，不进行隐式注册。
@@ -258,7 +260,7 @@ container.lazyPut<AuthRepository>(() => AuthRepository(container.find()));
 container.factory<Session>(() => Session());
 ```
 
-每个容器可有一个父容器。查找顺序为当前容器到父容器；子容器可覆盖父容器注册，但不能修改父容器注册。
+每个容器可有一个父容器。严格查找顺序为当前容器到父容器；共享同一根的容器树维护 `(Type, tag)` canonical 索引，相同 key 始终复用首次注册，不允许子容器覆盖父容器。
 
 ```text
 应用根容器
@@ -310,17 +312,17 @@ final db = await container.findAsync<Database>();
 - 多个并发 `findAsync()` 收到同一次初始化错误，不重复启动 builder；
 - 错误保留原始异常和堆栈，并补充依赖 key 与作用域信息。
 
-### 6.3 注册覆盖
+### 6.3 注册去重与 canonical 规则
 
 - 注册 key 由 `(Type, tag)` 组成，`put<T>()` 按 key 去重；
 - `put<T>(() => instance)` 是立即构造式注册：容器先检查 key，未注册时才执行 builder；
 - key 已存在时，`put` 不执行 builder、不替换注册，直接返回已有实例；
 - 已经在容器外构造好的对象使用 `putInstance<T>(instance)`；默认 `owned: false`，容器不负责销毁；
 - `putInstance(instance, owned: true)` 表示显式把实例所有权转移给容器；若 key 已存在，新传入对象仍不归容器所有；
-- `lazyPut`、`factory`、`putAsync` 与已有 key 冲突时默认抛出 `LxAlreadyRegisteredError`，避免静默忽略不同注册策略；
-- 确实需要替换时显式调用 `replace<T>()`，测试覆盖也使用此 API；
-- 去重只检查当前容器；父容器已有相同 key 时，子容器仍可注册并覆盖查找结果；
-- `find` 按当前容器到父容器查找；子容器销毁后，父容器实例重新可见；
+- `lazyPut`、`factory`、`putAsync` 遇到已有 key 时同样复用首次 canonical 注册，后续 builder 不执行；
+- 不提供替换机制，也不使用栈式遮蔽；需要多个同类型实例时必须使用不同 tag；
+- 首次注册确定生命周期 owner；后续重复注册只在当前 Scope 建立非持有 alias，不改变 owner，也不延长生命周期；
+- `find` 按当前容器到父容器严格查找；`Lemon.find` 使用全局 canonical 索引；
 - 提供 `contains<T>()`、`remove<T>()` 和 `reset()`；
 - `reset()` 按实例创建顺序的逆序销毁，减少依赖先于使用者销毁的问题。
 
@@ -341,6 +343,7 @@ T put<T>(
   T Function() builder, {
   Object? tag,
   FutureOr<void> Function(T value)? dispose,
+  bool permanent = false,
 });
 
 T putInstance<T>(
@@ -348,6 +351,7 @@ T putInstance<T>(
   Object? tag,
   bool owned = false,
   FutureOr<void> Function(T value)? dispose,
+  bool permanent = false,
 });
 ```
 
@@ -410,6 +414,17 @@ LxCircularDependencyError: A -> B -> C -> A
 
 ### 6.6 Flutter 作用域
 
+能够修改 `State` 时优先使用：
+
+```dart
+class _CounterPageState extends State<CounterPage>
+    with LxStateOwner<CounterPage> {
+  late final controller = put(CounterController.new);
+}
+```
+
+不能使用 Mixin 时，可用 `LxScope.put(...)` 包裹单个依赖，或用普通 `LxScope(bindings: ...)` 注册多个依赖。
+
 ```dart
 LxScope(
   create: (parent) {
@@ -449,13 +464,13 @@ await Lemon.reset();
 约束：
 
 - 全局入口是便利层，不是容器内核的唯一使用方式；
-- Widget 内优先使用 `context.lx`；
+- Widget 子树内优先使用 `context.lx`，弹窗等 Overlay 场景使用 `Lemon.find`；
 - 测试应创建独立 `LxContainer`，或在 tearDown 中 `Lemon.reset()`；
 - package 内部不得直接依赖全局容器，以确保内核可隔离测试。
 
-### 6.8 页面生命周期与未来 `go_router` 适配
+### 6.8 页面生命周期
 
-核心包不创建自己的 Route/Page 类型，也不封装 Navigator。0.1.0 只提供 `LxScope`，使用者可以把页面依赖绑定到 Widget 子树：
+核心包不创建自己的 Route/Page 类型，不封装 Navigator，也不安装 RouteObserver。使用者通过 `LxStateOwner` 或 `LxScope` 把页面依赖绑定到 Widget 生命周期：
 
 ```dart
 LxScope(
@@ -468,15 +483,7 @@ LxScope(
 )
 ```
 
-后期直接适配 `go_router`，不实现一套 LemonX 路由。适配建议放在独立包 `lemon_x_go_router` 中，使 `lemon_x` 核心包不依赖 `go_router`，两者可以独立升级。
-
-未来适配只完成以下映射：
-
-1. GoRoute 页面实例创建时，为该页面创建 `LxContainer` 子容器；
-2. 执行页面 bindings，并通过 `LxScope` 暴露给页面 Widget；
-3. 页面通过 `context.lx.find<T>()` 获取 Controller；
-4. 页面实例从 go_router 的页面栈真正移除时，销毁对应容器；
-5. 容器销毁时调用其中 Controller 的 `onDispose()`。
+页面从 Widget 树真正移除时，Mixin 或 Scope 销毁所有者容器并调用 Controller 的 `onDispose()`。页面 Controller 同时进入全局 canonical 索引，因此弹窗不需要复制 Scope。
 
 生命周期约定：
 
@@ -578,7 +585,7 @@ assert(listenerCalled);
 提供结构化异常，而不是仅使用字符串断言：
 
 - `LxNotFoundError`：依赖未注册，包含类型、tag 和已查找的作用域；
-- `LxAlreadyRegisteredError`：非幂等注册 API 与当前 key 冲突；
+- `LxOwnershipError`：调用方尝试删除其他 Scope 或 State 持有的注册；
 - `LxCircularDependencyError`：DI 或 computed 出现循环依赖；
 - `LxDisposedError`：访问已销毁对象；
 - `LxInvalidMutationError`：不允许的构建/计算期间写入。
@@ -597,7 +604,6 @@ final count = Rx(0, debugLabel: 'CounterController.count');
 [LemonX][root] PUT       Logger#184728
 [LemonX][root] LAZY_PUT  ApiClient
 [LemonX][root] CREATE    ApiClient#938271
-[LemonX][root] REPLACE   Logger#184728 -> FakeLogger#927361
 [LemonX][root] DISPOSE   Logger#184728
 [LemonX][root] RESET     disposed=5
 ```
@@ -617,7 +623,6 @@ enum LxDiEventType {
   create,
   find,
   duplicate,
-  replace,
   remove,
   dispose,
   reset,
@@ -638,7 +643,7 @@ LxDiagnostics.configure(
 默认行为：
 
 - Debug 模式开启，Release 模式完全关闭；
-- 默认记录 register/create/duplicate/replace/remove/dispose/reset；
+- 默认记录 register/create/duplicate/remove/dispose/reset；
 - `find` 频率高，默认不打印，仅在 verbose 或 `logFind: true` 时启用；
 - 重复 `put` 即使成功去重，也发送 duplicate 事件并标明复用的实例；
 - 根容器事件使用 `[root]`，局部容器使用其 `debugLabel`；
@@ -668,19 +673,20 @@ LxDiagnostics.configure(
 ### 10.2 依赖容器
 
 - 各注册模式的创建次数；
-- 父子容器查找与覆盖；
+- 父子容器严格查找与 canonical 复用；
 - tag 隔离；
 - 同步与异步循环依赖；
 - 并发异步初始化及失败重试；
 - builder/onInit 失败后回滚，后续允许重试；
-- 当前作用域去重与父作用域 shadow；
+- 同一容器树按 `(Type, tag)` 去重，重复注册不执行后续 builder；
 - 逆序销毁、只销毁一次和外部实例所有权；
 - 同一对象通过多个 key 注册时仍只销毁一次；
 - `putInstance` 默认不销毁，`owned: true` 才转移所有权；
 - active/disposing/disposed 状态转换及 dispose 幂等；
 - 异步销毁继续执行并汇总错误；
 - 父容器销毁前先销毁所有子容器；
-- replace/reset 后无残留注册。
+- remove/reset/dispose 后全局索引无残留；
+- `Lemon.remove()` 不能删除页面 Scope 或 State 持有的注册；
 - 根容器与子容器产生正确的结构化诊断事件；
 - 关闭诊断时不采集调用栈，Release 配置不输出日志；
 - 日志不调用实例 `toString()`，不暴露对象字段内容。
@@ -690,6 +696,8 @@ LxDiagnostics.configure(
 - 只重建读取了变化状态的 `Obx`；
 - 条件读取能够切换订阅；
 - `LxScope` 卸载时释放 Controller；
+- `LxStateOwner` 随 State 卸载释放 Controller；
+- 页面 Controller 可由普通 Dialog 通过 `Lemon.find()` 获取；
 - 外部容器默认不会被 Widget 销毁；
 - `onReady()` 只调用一次且发生在首帧后。
 
@@ -737,7 +745,7 @@ lib/
 
 - 独立 `LxContainer`；
 - put、putInstance、lazyPut、factory、find、tag；
-- 父子作用域、replace、remove、reset；
+- 父子作用域、canonical 去重、remove、reset；
 - `LxController` 和销毁协议；
 - 同步循环依赖检测与初始化失败回滚；
 - 容器状态机、实例所有权和异步销毁；
@@ -755,7 +763,7 @@ lib/
 - example 应用和完整 README；
 - 性能基准：核心读写、通知、对象创建和代表性 Widget 重建；
 - API 文档与迁移指南；
-- 公开 API 兼容性审查后发布 0.1.0。
+- 公开 API 兼容性审查后发布 0.2.0。
 
 ## 13. 首版公开 API 清单
 
@@ -768,13 +776,13 @@ Reactive
 
 Flutter
   Obx, RxBuilder<T>
-  LxScope, LemonApp, BuildContext.lx
+  LxScope, LxStateOwner, LemonApp, BuildContext.lx
 
 DI / lifecycle
   LxContainer, Lemon
   LxController, LxDisposable
   put, putInstance, lazyPut, factory, putAsync
-  find, findAsync, contains, replace, remove, reset
+  find, findAsync, contains, remove, reset
 
 Diagnostics
   LxDiagnostics and typed Lx errors
@@ -782,20 +790,20 @@ Diagnostics
 
 ## 14. 已确定的设计决策
 
-以下决策按本项目 0.1.0 的默认建议正式确定：
+以下决策按本项目 0.2.0 的默认建议正式确定：
 
 1. `RxList`、`RxMap`、`RxSet` 在首版支持常用可变操作并自动通知；
 2. 保留默认可用的 `Lemon` 根容器，同时文档优先使用 `LemonApp`、`context.lx` 和独立 `LxContainer`；
 3. 首版提供 `ever`、`once`、`debounce`、`interval` Worker；
 4. 首版提供 `RxComputed` 与基础 `rxEffect`；普通派生值仍优先推荐 Dart getter；
-5. 不实现 GetX 的 `permanent` / `fenix`，使用根作用域、Route 作用域和 lazy factory 表达生命周期；
+5. 不实现 GetX 的 `fenix`；`permanent: true` 把注册所有权交给根容器；
 6. `put` 使用立即构造式 builder，并在执行 builder 前按 `(Type, tag)` 去重；
-7. 页面依赖通过 `context.lx.find<T>()` 获取，`Lemon.find<T>()` 只读取根容器；
-8. 核心包不实现 Route/Page 类型；后期通过独立的 `lemon_x_go_router` 包适配页面 DI 生命周期。
+7. `context.lx.find<T>()` 保持严格父链查找；`Lemon.find<T>()` 读取全局 canonical 索引；
+8. 核心包不实现 Route/Page 类型，也不监听路由；页面生命周期由 `LxStateOwner` 或 `LxScope` 提供；
 9. `putInstance` 默认不转移所有权，只有 `owned: true` 时容器负责销毁；
 10. 销毁协议支持 `FutureOr<void>`，容器采用 active/disposing/disposed 状态机；
 11. 初始化失败必须回滚，失败的异步 Future 不缓存；
-12. 去重只发生在当前容器，子容器允许 shadow 父容器；
+12. 去重发生在共享根容器的整个树中，同一 `(Type, tag)` 不允许 shadow 或替换；
 13. 同步循环依赖检测属于 DI MVP；
 14. 普通 Rx 更新同步通知，批量通知必须显式调用 `rxBatch`；
 15. `RxAsync<T>` 只提供 loading/data/error 三态，保持可选且仅用于 presentation 层。
@@ -807,7 +815,7 @@ LemonX 始终只包含以下两类能力：
 1. 状态管理：Rx、Obx、派生状态、Worker 和响应式调度；
 2. 依赖注入：容器、作用域、注册查找、Controller 生命周期和销毁。
 
-未来的 `go_router` 绑定只是第二项的生命周期适配：页面实例离开路由栈时，销毁对应 DI 子容器和其中的 Controller。核心包不提供路由或导航能力。
+页面生命周期只依赖 Flutter Widget 的 `State.dispose()` 或 `LxScope` 卸载。核心包不提供路由或导航能力。
 
 项目不加入导航、路由管理、国际化、主题管理、网络请求、缓存、持久化、日志、Snackbar、Dialog、BottomSheet 或其他 UI 工具。
 
