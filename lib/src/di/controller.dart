@@ -19,6 +19,12 @@ abstract class LxController {
     return resource;
   }
 
+  /// Adds multiple resources to be disposed before this controller's
+  /// [onDispose]. Resources are disposed in reverse registration order.
+  void ownAll(Iterable<Object> resources) {
+    _owned.addAll(resources);
+  }
+
   /// Called once after the controller enters a container.
   void onInit() {}
 

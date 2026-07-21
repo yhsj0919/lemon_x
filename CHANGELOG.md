@@ -1,5 +1,6 @@
 ## 0.2.0
 
+* `LxController` 新增 `ownAll()`，支持一次批量托管需随 Controller 释放的资源。
 * 重构依赖注入：每棵容器树中的 `(Type, tag)` 只保留一条 canonical 注册，页面依赖默认全局可发现，重复注册始终复用首次注册。
 * 新增 `LemonRouteObserver` 和 `LxPage` 两种页面生命周期入口，页面可直接使用 `Lemon.put/find`，同时不接管 Navigator 或具体路由框架。
 * 新增 `permanent` 根容器所有权，禁止通过全局 API 删除页面持有的注册，并移除替换和作用域遮蔽规则。

@@ -240,6 +240,20 @@ void main() {
     expect(events, ['init:owner', 'resource', 'dispose:owner']);
   });
 
+  test('controller owns multiple resources in one call', () async {
+    final events = <String>[];
+    final container = LxContainer(debugLabel: 'test');
+    final controller = container.put(() => _TrackedController(events, 'owner'));
+    controller.ownAll([
+      _DisposableService(() => events.add('first')),
+      _DisposableService(() => events.add('second')),
+    ]);
+
+    await container.dispose();
+
+    expect(events, ['init:owner', 'second', 'first', 'dispose:owner']);
+  });
+
   test(
     'putInstance is external by default and can transfer ownership',
     () async {

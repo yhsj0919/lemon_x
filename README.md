@@ -251,6 +251,8 @@ class CounterController extends LxController {
 
 `LxController` 是可选便利基类。普通 Dart 对象也能注册，并通过 `dispose` 回调释放。
 
+Controller 可使用 `own(resource)` 托管单个资源，或使用 `ownAll(resources)` 批量托管。Controller 销毁时，资源会按注册顺序的逆序自动释放。
+
 ## 异步依赖
 
 ```dart
